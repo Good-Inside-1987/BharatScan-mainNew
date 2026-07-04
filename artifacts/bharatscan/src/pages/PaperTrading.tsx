@@ -378,7 +378,7 @@ export default function PaperTrading() {
           <select
             value={accountId ?? ""}
             onChange={(e) => setAccountId(e.target.value)}
-            className="bg-background border border-border rounded-lg px-3 py-1.5 text-xs text-foreground focus:outline-none"
+            className="bg-background border border-border rounded-lg px-2 py-0.5 text-[11px] text-foreground focus:outline-none"
           >
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>{a.name}</option>
@@ -386,9 +386,9 @@ export default function PaperTrading() {
           </select>
           <button
             onClick={() => setShowNewAccount(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border rounded-lg text-foreground hover:bg-muted/40 transition"
+            className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold border border-border rounded-lg text-foreground hover:bg-muted/40 transition"
           >
-            <Plus className="h-3.5 w-3.5" /> New Account
+            <Plus className="h-3 w-3" /> New Account
           </button>
         </div>
       </div>
