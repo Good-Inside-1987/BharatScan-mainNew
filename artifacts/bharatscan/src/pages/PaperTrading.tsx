@@ -2213,16 +2213,11 @@ function OptionsChainTradeFlow({
 
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-      <div className="bg-card border-2 border-primary/30 border-dashed rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
-
-        {/* Drafts Mode banner */}
-        <div className="text-center py-1 border-b border-primary/20 bg-primary/5">
-          <span className="text-[10px] font-bold text-primary tracking-widest uppercase">Drafts Mode</span>
-        </div>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
 
         {/* Title row */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h2 className="text-sm font-semibold text-foreground">Review New Draft Trade Orders</h2>
+          <h2 className="text-sm font-semibold text-foreground">Review and Execute Order</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors"><X className="h-4 w-4" /></button>
         </div>
 
@@ -2323,7 +2318,7 @@ function OptionsChainTradeFlow({
               disabled={draftLegs.length === 0 || insufficient || submitting}
               onClick={() => onConfirm(draftLegs)}
               className="px-6 py-2 text-sm font-bold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-40 active:scale-95 transition">
-              {submitting ? "Placing…" : `Add (${draftLegs.length})`}
+              {submitting ? "Placing…" : `Place Order (${draftLegs.length})`}
             </button>
           </div>
         </div>
