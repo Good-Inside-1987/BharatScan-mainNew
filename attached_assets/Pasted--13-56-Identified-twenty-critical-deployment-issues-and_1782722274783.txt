@@ -1,0 +1,69 @@
+
+13:56
+
+Identified twenty critical deployment issues and organized remediation priorities
+Identified twenty critical deployment issues and organized remediation priorities
+Now I have a complete picture of the codebase. Let me give you a thorough analysis.
+
+
+Identified fifteen critical gaps between Replit setup and Oracle deployment
+Identified fifteen critical gaps between Replit setup and Oracle deployment
+Good — now I've read the actual code thoroughly. Here's what I found, organized by priority:
+
+🔴 Critical — Will break on Oracle without fixing
+
+1. Replit plugin in vite.config.ts is always loaded
+runtimeErrorOverlay() from @replit/vite-plugin-runtime-error-modal has no environment guard — it runs everywhere, including Oracle. The cartographer plugin is guarded by REPL_ID but still imported. On Oracle the vite build will either fail or include unnecessary Replit code. These need to be conditionally excluded outside Replit.
+
+2. post-merge.sh will crash GitHub auto-deploy
+Line: pnpm --filter db push — there is no db workspace package in your project. Every time GitHub pushes to Oracle and triggers this script, it will error and the auto-deploy will fail silently.
+
+3. No production server setup at all
+Right now your app runs in Vite dev mode. On Oracle you need:
+
+vite build → creates static files in dist/public
+Express to serve those static files AND the API on one port
+Currently Express doesn't serve the built frontend anywhere in the code
+No PM2 config file exists for process management
+🟠 Important — Core functionality gaps for Oracle
+
+4. ALL stock/options data lives in the browser, not the server
+This is the biggest gap. Looking at the code:
+
+Stock histories → idb-keyval (browser IndexedDB, wiped on clear)
+Categories, holidays, quotes → localStorage (browser only)
+The Node.js server has zero tables for market data — only saved scans, portfolio, alerts
+The MarketApiPanel fetches from an external URL and loads into browser memory temporarily — refresh = gone
+The entire Angel API integration + server-side market data tables need to be built from scratch.
+
+5. MarketApiPanel points to a separate FastAPI backend that doesn't exist yet
+It calls /stocks/all and /options/all on a URL you configure. That backend (the FastAPI Python service you planned earlier) doesn't exist in this project. No auto-sync scheduler exists either.
+
+6. API credentials in localStorage
+The bs:api-key for the data backend is stored in browser localStorage. On Oracle, if you open from a different browser or incognito, credentials are gone. They need to move to the server's app_settings table (which already exists and is perfect for this).
+
+🟡 Should fix before going live
+
+7. CORS is fully open
+app.use(cors()) — no origin restrictions. On Oracle your API is publicly accessible from any website. Should be locked to your domain only.
+
+8. Node.js v22 must be installed on Oracle
+node:sqlite requires Node 22.5+. Ubuntu's default apt gives Node 18. Oracle setup must explicitly install Node 22.
+
+9. attached_assets folder alias
+vite.config.ts has @assets → ../../attached_assets. This works in Replit's structure. After git clone on Oracle you need to make sure this path resolves correctly, or the build will fail on missing logo/favicon.
+
+📋 Summary of what needs to be built before Oracle deployment
+
+What	Status
+Remove/guard Replit vite plugins	Fix needed
+Fix post-merge.sh	Fix needed
+Add production build + Express static serving	Build needed
+PM2 ecosystem config file	Build needed
+Server-side market data tables (stock OHLCV, options)	Build needed
+Angel One API integration + auto-sync scheduler	Build needed
+Move API credentials from localStorage → server DB	Build needed
+Environment config (Replit dev vs Oracle production)	Build needed
+CORS lockdown	Fix needed
+Oracle setup script (Node 22, PM2, Cloudflare tunnel)	Build needed
+The good news: your existing code — the screener engine, indicators, portfolio, saved scans, alerts — is all solid and doesn't need changes. The entire gap is the data layer: getting market data in automatically and persisting it server-side instead of in the browser. That's the main thing to build. Want to start with that?

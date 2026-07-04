@@ -1,0 +1,365 @@
+Fix Global Page Alignment Across the Entire BharatScan Website
+
+Objective
+
+The BharatScan website currently has inconsistent page alignment.
+
+Every page uses a different content width and different horizontal positioning.
+
+I have attached screenshots.
+
+In every screenshot I have drawn two vertical white guide lines.
+
+These white lines represent the permanent left and right boundaries of the website.
+
+Every page must stay completely inside these boundaries.
+
+No component should start before the left guide line.
+
+No component should extend beyond the right guide line.
+
+These two guide lines become the universal content boundaries for the entire application.
+
+⸻
+
+Current Problem
+
+The permanent header already establishes the visual width of the application.
+
+However, every page below the header ignores these boundaries.
+
+Examples:
+
+Home page
+
+* Dashboard cards begin too far left.
+* Tables extend too far right.
+
+Scanner Dashboard
+
+* Scan cards extend outside the right boundary.
+
+Portfolio
+
+* Dashboard cards begin correctly.
+* Action buttons extend outside the right boundary.
+
+Saved Scans
+
+* Table width exceeds the content area.
+
+Alerts
+
+* Summary cards and table extend outside the boundary.
+
+Settings
+
+* Left menu and profile form do not align with the global content width.
+
+Strategies Backtest
+
+* Sections are wider than the reference layout.
+
+Only the Create Scan page is approximately aligned correctly.
+
+Use Create Scan as the layout reference.
+
+⸻
+
+The Permanent Header Defines the Website Width
+
+The permanent top header is the visual anchor of BharatScan.
+
+Every page below the header must align perfectly with it.
+
+The left edge of every page must begin at the same X position.
+
+The right edge of every page must end at the same X position.
+
+No exceptions.
+
+When switching between pages, the content should never shift horizontally.
+
+Everything should remain perfectly aligned.
+
+⸻
+
+Create One Global Content Container
+
+Do NOT manually fix each page individually.
+
+Create one reusable layout component.
+
+Example
+
+AppLayout
+
+↓
+
+Sidebar
+
+↓
+
+Header
+
+↓
+
+Main Content Container
+
+↓
+
+Page Content
+
+Every page must render inside the same content container.
+
+⸻
+
+Fixed Content Boundaries
+
+Create one global maximum content width.
+
+Example
+
+max-width: 1500px–1600px
+
+margin-left: auto
+
+margin-right: auto
+
+Every page must inherit these values.
+
+Never allow individual pages to override them.
+
+⸻
+
+Universal Left Edge
+
+The following elements must all begin at exactly the same horizontal position:
+
+Home Dashboard
+
+Scanner Dashboard
+
+Create Scan
+
+Strategies Backtest
+
+Portfolio
+
+Saved Scans
+
+Alerts
+
+Settings
+
+Future pages
+
+Their first visible content should line up vertically.
+
+⸻
+
+Universal Right Edge
+
+The following elements must all stop at exactly the same horizontal position:
+
+Tables
+
+Cards
+
+Forms
+
+Charts
+
+Buttons
+
+Dashboard panels
+
+Search bars
+
+Toolbars
+
+Action buttons
+
+No component should extend beyond the right guide line.
+
+⸻
+
+Action Buttons
+
+Buttons such as:
+
+Export
+
+Import
+
+Run Scan
+
+Run Backtest
+
+Create Dashboard
+
+New Scan
+
+Add Scan
+
+Add Alert
+
+must remain inside the content container.
+
+Do not allow them to float outside the right boundary.
+
+⸻
+
+Tables
+
+Every table must use the available content width only.
+
+Examples
+
+Saved Scans
+
+Alerts
+
+Dashboard Tables
+
+Scanner Results
+
+Portfolio Holdings
+
+Do not allow tables to overflow the content container.
+
+⸻
+
+Dashboard Cards
+
+Cards should remain inside the content boundaries.
+
+Examples
+
+Home
+
+Portfolio
+
+Scanner Dashboard
+
+Alert Summary
+
+No card should extend beyond the right guide line.
+
+⸻
+
+Forms
+
+Forms should also respect the global container.
+
+Examples
+
+Create Scan
+
+Strategies Backtest
+
+Settings
+
+Portfolio forms
+
+Import dialogs
+
+Everything must remain inside the content boundaries.
+
+⸻
+
+Responsive Behaviour
+
+Large Monitor
+
+Website remains centered.
+
+Blank space appears on both sides.
+
+Ultra-wide Monitor
+
+Content width remains fixed.
+
+Blank margins become larger.
+
+Laptop
+
+Everything remains aligned.
+
+Tablet
+
+Container scales appropriately.
+
+Mobile
+
+Responsive layout activates.
+
+⸻
+
+Future Advertisement Space
+
+The blank space outside the two guide lines is intentional.
+
+Do not place website content there.
+
+These areas will later be used for:
+
+• Google AdSense
+
+• Banner Ads
+
+• Sponsored Content
+
+The application should permanently reserve these areas.
+
+⸻
+
+Do Not Change
+
+Do not modify
+
+Theme
+
+Colors
+
+Typography
+
+Sidebar
+
+Header
+
+Buttons
+
+Icons
+
+Animations
+
+Business Logic
+
+Only fix the global layout architecture.
+
+⸻
+
+Acceptance Criteria
+
+The implementation is complete only if:
+
+✓ Every page begins at exactly the same left position.
+
+✓ Every page ends at exactly the same right position.
+
+✓ Every page aligns perfectly with the permanent header.
+
+✓ No card extends beyond the right boundary.
+
+✓ No table exceeds the content width.
+
+✓ No action button appears outside the content container.
+
+✓ Switching between pages does not change the horizontal alignment.
+
+✓ The Create Scan page becomes the standard layout that every page follows.
+
+✓ The white guide lines shown in the attached screenshots become the permanent left and right boundaries of the website.
+
+The final result should make the entire BharatScan application feel like one professionally designed product with a single, consistent layout system across all pages.

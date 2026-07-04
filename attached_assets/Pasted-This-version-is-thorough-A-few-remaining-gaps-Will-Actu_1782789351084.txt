@@ -1,0 +1,14 @@
+This version is thorough. A few remaining gaps:
+Will Actually Break Deployment
+Git authentication from Oracle to GitHub is missing. When GitHub Actions SSHes into Oracle and runs git pull, Oracle needs permission to pull from the GitHub repo. If the repo is private, git pull will silently fail or prompt for a password. The fix is adding a GitHub Deploy Key — generate a second SSH key pair, add the public key to GitHub repo Settings → Deploy Keys, and the private key to Oracle's ~/.ssh. This step belongs in Phase 3 between "Clone app from GitHub" and "Create .env file."
+pnpm install in the deploy pipeline should be pnpm install --frozen-lockfile. Without this flag, pnpm can silently update the lockfile during production deployment, potentially pulling in untested package versions. This goes in the deploy.yml and in post-merge.sh.
+Will Corrupt Backups
+Copying SQLite WAL files with cp while the database is running can still produce a corrupt backup even if all 6 files are copied together. The correct method is using SQLite's built-in .backup command or running PRAGMA wal_checkpoint(FULL) first to flush all WAL data into the main .db file before copying. The backup script in Phase 2D needs to use one of these approaches, not a plain file copy.
+Will Cause Confusion During Oracle Setup
+Cloudflare Tunnel authentication on a headless server requires a special step. Running cloudflared tunnel login on Oracle opens a browser URL but Oracle has no browser. You must copy that printed URL, open it in your local computer's browser, authorize it, and then the tunnel proceeds. This non-obvious step belongs in Phase 3 next to the Cloudflare setup item, otherwise the setup stalls unexpectedly.
+Two Databases Require Rewriting All Route Files
+Phase 2A splits bharatscan.db into market.db and app.db, but the current server/src/db.ts exports a single db connection used by every route file. After the split, every route file (scans.ts, portfolio.ts, alerts.ts, etc.) needs to import from the correct database connection. This is a wider code change than it appears and should be listed explicitly in Phase 2A, not just mentioned as "create two database files."
+Minor
+Node.js v22 should specify v22.5 or later as the minimum — v22.0 through v22.4 do not include node:sqlite. Saying "install Node.js v22" risks someone installing v22.0 and the app still failing to start.
+The deploy.yml needs a PM2 process name to restart specifically. If pm2 restart all is used it works, but if you later add Cloudflare tunnel as a separate PM2 process, restarting all also briefly kills the tunnel. The ecosystem.config.js process name and the pm2 restart <name> in deploy.yml should match explicitly.
+Everything else is complete and correct. This is a solid production-ready document.

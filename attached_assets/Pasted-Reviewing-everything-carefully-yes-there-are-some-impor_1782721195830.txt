@@ -1,0 +1,28 @@
+Reviewing everything carefully, yes — there are some important gaps that weren't discussed. Here's what's missing:
+Critical Technical Gaps
+
+Angel API token auto-refresh — Angel uses TOTP login and the session token expires daily. Without an automated refresh mechanism, your 4 PM daily sync will silently fail. This needs a proper solution (using the raw TOTP secret to generate codes automatically).
+Angel API rate limiting — Fetching 2000+ stocks daily in a loop will hit Angel's API rate limits (calls per second). The sync code needs throttling and retry logic built in, otherwise bulk data fetches will fail halfway.
+Historical data backfill on Day 1 — On the first day you set up Oracle, you have an empty database. Angel only provides ~60-90 days of 1-min historical intraday. So your "intraday forever" plan starts accumulating from setup day, not from years back. EOD history can be backfilled but intraday cannot. This needs a clear first-run strategy.
+ATM strike calculation — To fetch ATM ±30 options strikes, the system first needs to know the current Nifty/BankNifty/stock price to calculate which strikes are ATM. This live price lookup needs to happen before every options fetch.
+Options expiry handling — Which expiries to keep was never defined. Near week + next week + near month? All active expiries? When an expiry rolls over and new strikes open, the system needs to handle this automatically.
+
+Database
+
+SQLite vs PostgreSQL for Oracle — SQLite is fine for small apps but for 55-65 GB with complex backtest/scan queries across millions of rows, it will be slow. PostgreSQL with proper indexes would be significantly faster for production Oracle use.
+Database indexes — Needs indexes on (symbol, date), (symbol, timestamp) columns from the start. Without them, scanning 2000 stocks' history for backtesting will be very slow even with PostgreSQL.
+Schema migration strategy — When you add new features and the database structure changes, how do existing Oracle data tables get updated without wiping everything? Needs a migration plan.
+
+Operations
+
+Disk usage monitoring — Oracle needs an alert when storage approaches ~150-160 GB so you're never surprised. No one mentioned this.
+Sync failure alerting — If the 4 PM sync fails silently (network issue, Angel API down, holiday), you won't know until you open the app and data is stale. Needs a notification (even a simple email or Telegram message).
+NSE holiday calendar — The auto-sync should skip weekends and NSE trading holidays automatically, not try to fetch data on days when market was closed.
+Sensex on BSE — Sensex options trade on BSE, not NSE. Needs to be confirmed whether Angel API provides BSE options data and in the same format.
+
+Security
+
+Secrets management — API keys and credentials should be stored in environment variables (.env file), never hardcoded in the codebase that goes to GitHub.
+
+Most Critical ones to solve before building anything else: token auto-refresh (#1), rate limiting (#2), and Day 1 backfill strategy (#3) — without these three, the Angel API integration won't work reliably from day one.
+Want to discuss solutions for any of these?
