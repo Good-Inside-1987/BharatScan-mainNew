@@ -415,43 +415,45 @@ export default function PaperTrading() {
           </div>
 
           {/* Actions */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => setShowStockTrade(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 active:scale-95 transition"
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 active:scale-95 transition"
             >
-              <Plus className="h-3.5 w-3.5" /> Trade in Stocks
+              <Plus className="h-3 w-3" /> Trade in Stocks
             </button>
             <button
               onClick={() => setShowFuturesTrade(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 active:scale-95 transition"
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 active:scale-95 transition"
             >
-              <Plus className="h-3.5 w-3.5" /> Trade in Futures
+              <Plus className="h-3 w-3" /> Trade in Futures
             </button>
             <button
               onClick={() => setShowOptionsTrade(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 active:scale-95 transition"
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 active:scale-95 transition"
             >
-              <Plus className="h-3.5 w-3.5" /> Trade in Options
+              <Plus className="h-3 w-3" /> Trade in Options
             </button>
-            <button
-              onClick={() => setShowAddFunds(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border rounded-lg text-foreground hover:bg-muted/40 transition"
-            >
-              <Wallet className="h-3.5 w-3.5" /> Add Funds
-            </button>
-            <button
-              onClick={() => { if (confirm("Reset this account back to its starting balance? All open positions and trade history will be cleared.")) resetMut.mutate(); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border rounded-lg text-muted-foreground hover:bg-muted/40 transition"
-            >
-              <RefreshCw className="h-3.5 w-3.5" /> Reset Account
-            </button>
-            <button
-              onClick={() => { if (confirm("Delete this paper trading account permanently?")) deleteAccountMut.mutate(); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-border rounded-lg text-red-500 hover:bg-red-500/10 transition ml-auto"
-            >
-              <Trash2 className="h-3.5 w-3.5" /> Delete Account
-            </button>
+            <div className="flex items-center gap-1.5 ml-auto">
+              <button
+                onClick={() => setShowAddFunds(true)}
+                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border border-border rounded-lg text-foreground hover:bg-muted/40 transition"
+              >
+                <Wallet className="h-3 w-3" /> Add Funds
+              </button>
+              <button
+                onClick={() => { if (confirm("Reset this account back to its starting balance? All open positions and trade history will be cleared.")) resetMut.mutate(); }}
+                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border border-border rounded-lg text-muted-foreground hover:bg-muted/40 transition"
+              >
+                <RefreshCw className="h-3 w-3" /> Reset Account
+              </button>
+              <button
+                onClick={() => { if (confirm("Delete this paper trading account permanently?")) deleteAccountMut.mutate(); }}
+                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border border-border rounded-lg text-red-500 hover:bg-red-500/10 transition"
+              >
+                <Trash2 className="h-3 w-3" /> Delete Account
+              </button>
+            </div>
           </div>
 
           {/* Tabs */}
