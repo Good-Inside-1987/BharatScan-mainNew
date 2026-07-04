@@ -602,7 +602,18 @@ export default function PaperTrading() {
                   {filteredPositions.map((p) => (
                     <tr key={p.id} className="border-b border-border/50 hover:bg-muted/20">
                       <td className="px-3 py-2">
-                        <div className="text-xs font-semibold text-foreground">{p.symbol}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${
+                            p.instrument_type === "option"
+                              ? "bg-purple-500/15 text-purple-400 border border-purple-500/30"
+                              : p.instrument_type === "future"
+                              ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                              : "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30"
+                          }`}>
+                            {p.instrument_type === "option" ? "Option" : p.instrument_type === "future" ? "Future" : "Stock"}
+                          </span>
+                          <div className="text-xs font-semibold text-foreground">{p.symbol}</div>
+                        </div>
                         {p.instrument_type === "option" && (
                           <div className="text-[10px] text-muted-foreground">
                             {p.underlying} {p.strike} {p.option_type} · {fmtDate(p.expiry ?? "")} · lot {p.lot_size}
