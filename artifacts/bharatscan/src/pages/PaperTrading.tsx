@@ -146,8 +146,8 @@ function SymbolPicker({ symbols, value, onChange, placeholder }: {
 function StatCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: React.ComponentType<{ className?: string }>; tone?: "up" | "down" | "neutral" }) {
   const toneCls = tone === "up" ? "text-emerald-500" : tone === "down" ? "text-red-500" : "text-foreground";
   return (
-    <Card className="px-4 py-2.5">
-      <div className="flex items-center justify-between mb-1">
+    <Card className="px-3 py-2">
+      <div className="flex items-center justify-between mb-0.5">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
         <Icon className="h-3 w-3 text-muted-foreground/60" />
       </div>
@@ -314,7 +314,7 @@ export default function PaperTrading() {
   });
 
   return (
-    <div className="p-3 space-y-2 max-w-[1400px] mx-auto">
+    <div className="p-3 space-y-1.5 max-w-[1400px] mx-auto">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -344,7 +344,7 @@ export default function PaperTrading() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-lg px-3 py-2">
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-lg px-3 py-1.5">
         <Radio className="h-3 w-3 text-primary shrink-0" />
         P&L refreshes every 1 minute from the latest loaded price data. Live streaming will switch on automatically once the Angel One SmartAPI feed is connected — no changes needed on your side.
       </div>
@@ -356,7 +356,7 @@ export default function PaperTrading() {
       ) : (
         <>
           {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-1.5">
             <StatCard label="Cash Balance" value={fmtRs(account.cash_balance)} icon={Wallet} />
             <StatCard label="Invested (Margin)" value={fmtRs(account.invested)} icon={Settings2} />
             <StatCard label="Unrealized P&L" value={fmtPnl(unrealizedPnl)} icon={unrealizedPnl >= 0 ? TrendingUp : TrendingDown} tone={unrealizedPnl >= 0 ? "up" : "down"} />
