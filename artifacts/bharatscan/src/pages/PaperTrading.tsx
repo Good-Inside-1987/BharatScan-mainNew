@@ -2185,9 +2185,10 @@ function OptionsChainTradeFlow({
 
         {/* Column headers */}
         <div className="grid items-center text-[11px] font-medium text-muted-foreground border-b border-border bg-muted/10 px-4 py-2"
-          style={{ gridTemplateColumns: "80px 1fr 60px 110px 90px 36px" }}>
+          style={{ gridTemplateColumns: "80px 1fr 92px 60px 110px 90px 36px" }}>
           <div>Type</div>
           <div>Instrument</div>
+          <div className="text-center">Lot</div>
           <div className="text-right">Qty</div>
           <div className="text-right pr-6">Price</div>
           <div>Time</div>
@@ -2199,7 +2200,7 @@ function OptionsChainTradeFlow({
           {draftLegs.map((leg) => (
             <div key={leg.id}
               className="grid items-center px-4 py-2.5 hover:bg-muted/20 transition"
-              style={{ gridTemplateColumns: "80px 1fr 60px 110px 90px 36px" }}>
+              style={{ gridTemplateColumns: "80px 1fr 92px 60px 110px 90px 36px" }}>
 
               {/* Type: Buy/Sell badge */}
               <div>
@@ -2215,6 +2216,22 @@ function OptionsChainTradeFlow({
               {/* Instrument */}
               <div className="font-medium text-foreground text-[12px] truncate pr-3">
                 {leg.underlying} {fmtDate(leg.expiry)} {leg.strike} {leg.type}
+              </div>
+
+              {/* Lot +/- stepper */}
+              <div className="flex items-center justify-center gap-1.5">
+                <button
+                  onClick={() => setDraftLegs((p) => p.map((l) => l.id === leg.id ? { ...l, lots: Math.max(1, l.lots - 1) } : l))}
+                  disabled={leg.lots <= 1}
+                  className="w-5 h-5 flex items-center justify-center rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-30 transition-colors leading-none">
+                  −
+                </button>
+                <span className="w-5 text-center tabular-nums text-foreground text-[12px] font-semibold">{leg.lots}</span>
+                <button
+                  onClick={() => setDraftLegs((p) => p.map((l) => l.id === leg.id ? { ...l, lots: l.lots + 1 } : l))}
+                  className="w-5 h-5 flex items-center justify-center rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors leading-none">
+                  +
+                </button>
               </div>
 
               {/* Qty (shares) */}
