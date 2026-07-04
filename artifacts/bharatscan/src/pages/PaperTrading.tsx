@@ -393,7 +393,7 @@ export default function PaperTrading() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-lg px-3 py-1.5">
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-lg px-3 py-1">
         <Radio className="h-3 w-3 text-primary shrink-0" />
         P&L refreshes every 1 minute from the latest loaded price data. Live streaming will switch on automatically once the Angel One SmartAPI feed is connected — no changes needed on your side.
       </div>
