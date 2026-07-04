@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Wallet, TrendingUp, TrendingDown, Plus, X, RefreshCw, History,
   ArrowUpRight, ArrowDownRight, Trash2, Settings2, Radio, Target, AlertTriangle, XCircle,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Download,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useData } from "@/context/DataContext";
@@ -293,6 +293,44 @@ export default function PaperTrading() {
     qc.invalidateQueries({ queryKey: ["paper-trades", accountId] });
   }
 
+  function handleExportTradesCsv() {
+    if (trades.length === 0) return;
+    const headers = [
+      "Type", "Symbol", "Underlying", "Strike", "Option Type", "Expiry", "Side",
+      "Lot", "Qty", "Entry Price", "Exit Price", "Realized P&L", "Entry Date", "Exit Date",
+    ];
+    const escape = (v: string | number | null | undefined) => {
+      const s = v === null || v === undefined ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const rows = trades.map((t) => [
+      t.instrument_type === "option" ? "Option" : t.instrument_type === "future" ? "Future" : "Stock",
+      t.symbol,
+      t.underlying ?? "",
+      t.strike ?? "",
+      t.option_type ?? "",
+      t.expiry ? fmtDate(t.expiry) : "",
+      t.side === "long" ? "BUY" : "SELL",
+      t.instrument_type === "stock" ? "" : t.qty,
+      t.instrument_type === "stock" ? t.qty : t.qty * t.lot_size,
+      t.entry_price,
+      t.exit_price,
+      t.realized_pnl,
+      fmtDate(t.entry_date),
+      fmtDate(t.exit_date),
+    ].map(escape).join(","));
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `trade-history-${todayIso()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   function getCurrentLtp(p: ApiPaperPosition): number | null {
     if (p.instrument_type === "stock") return getStockLtp(histories, p.symbol, asOfDate);
     if (p.instrument_type === "future") return getStockLtp(histories, p.underlying ?? p.symbol, asOfDate);
@@ -573,6 +611,17 @@ export default function PaperTrading() {
                     {closingAll ? <><RefreshCw className="h-3 w-3 animate-spin" /> Closing…</> : <><XCircle className="h-3 w-3" /> Close All</>}
                   </button>
                 )}
+              </div>
+            )}
+            {tab === "history" && (
+              <div className="ml-auto flex items-center mr-1">
+                <button
+                  onClick={handleExportTradesCsv}
+                  disabled={trades.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-semibold border border-border rounded-lg text-foreground hover:bg-muted/40 active:scale-95 transition disabled:opacity-50"
+                >
+                  <Download className="h-3 w-3" /> Download CSV
+                </button>
               </div>
             )}
           </div>
