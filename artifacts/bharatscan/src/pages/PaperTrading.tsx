@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Wallet, TrendingUp, TrendingDown, Plus, X, RefreshCw, History,
-  ArrowUpRight, ArrowDownRight, Trash2, Settings2, Radio, Target, AlertTriangle,
+  ArrowUpRight, ArrowDownRight, Trash2, Settings2, Radio, Target, AlertTriangle, XCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useData } from "@/context/DataContext";
@@ -169,6 +169,7 @@ export default function PaperTrading() {
   const [showFuturesTrade, setShowFuturesTrade] = useState(false);
   const [showOptionsTrade, setShowOptionsTrade] = useState(false);
   const [closingPosition, setClosingPosition] = useState<ApiPaperPosition | null>(null);
+  const [closingAll, setClosingAll] = useState(false);
   const [tab, setTab] = useState<"positions" | "history">("positions");
   const [tick, setTick] = useState(0); // forces P&L recompute every minute
 
@@ -212,6 +213,27 @@ export default function PaperTrading() {
     const merged = Array.from(new Set([...ALL_FUTURES_SYMBOLS, ...fromCsv]));
     return merged.sort();
   }, [optionsData]);
+
+  async function handleCloseAll() {
+    const count = positionsWithPnl.length;
+    if (count === 0) return;
+    if (!confirm(`Close all ${count} open position${count === 1 ? "" : "s"} at current LTP? This cannot be undone.`)) return;
+    setClosingAll(true);
+    const date = todayIso();
+    await Promise.allSettled(
+      positionsWithPnl.map((p) =>
+        apiClosePaperPosition(accountId as string, p.id, {
+          qty_closed: p.qty,
+          exit_price: p.ltp ?? p.entry_price,
+          exit_date: date,
+        })
+      )
+    );
+    setClosingAll(false);
+    qc.invalidateQueries({ queryKey: ["paper-accounts"] });
+    qc.invalidateQueries({ queryKey: ["paper-positions", accountId] });
+    qc.invalidateQueries({ queryKey: ["paper-trades", accountId] });
+  }
 
   function getCurrentLtp(p: ApiPaperPosition): number | null {
     if (p.instrument_type === "stock") return getStockLtp(histories, p.symbol, asOfDate);
@@ -421,6 +443,19 @@ export default function PaperTrading() {
                 {t === "positions" ? `Open Positions (${positions.length})` : `Trade History (${trades.length})`}
               </button>
             ))}
+            {tab === "positions" && positionsWithPnl.length > 0 && (
+              <button
+                onClick={handleCloseAll}
+                disabled={closingAll}
+                className="ml-auto mr-1 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold border border-red-500/50 text-red-500 rounded-lg hover:bg-red-500/10 active:scale-95 transition disabled:opacity-50"
+              >
+                {closingAll ? (
+                  <><RefreshCw className="h-3 w-3 animate-spin" /> Closing…</>
+                ) : (
+                  <><XCircle className="h-3 w-3" /> Close All Positions</>
+                )}
+              </button>
+            )}
           </div>
 
           {tab === "positions" ? (
