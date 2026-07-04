@@ -701,6 +701,7 @@ export default function PaperTrading() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border bg-muted/40 text-muted-foreground uppercase tracking-wide">
+                    <th className="text-left px-3 py-2 text-[9px] font-semibold w-[80px]">Type</th>
                     <th className="text-left px-3 py-2 text-[9px] font-semibold">Instrument</th>
                     <th className="text-left px-3 py-2 text-[9px] font-semibold">Side</th>
                     <th className="text-right px-3 py-2 text-[9px] font-semibold">Lot</th>
@@ -713,10 +714,21 @@ export default function PaperTrading() {
                 </thead>
                 <tbody>
                   {trades.length === 0 && (
-                    <tr><td colSpan={8} className="text-center py-6 text-xs text-muted-foreground">No closed trades yet.</td></tr>
+                    <tr><td colSpan={9} className="text-center py-6 text-xs text-muted-foreground">No closed trades yet.</td></tr>
                   )}
                   {trades.map((t) => (
                     <tr key={t.id} className="border-b border-border/50 hover:bg-muted/20">
+                      <td className="px-3 py-2 align-top">
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${
+                          t.instrument_type === "option"
+                            ? "bg-purple-500/15 text-purple-400 border border-purple-500/30"
+                            : t.instrument_type === "future"
+                            ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                            : "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30"
+                        }`}>
+                          {t.instrument_type === "option" ? "Option" : t.instrument_type === "future" ? "Future" : "Stock"}
+                        </span>
+                      </td>
                       <td className="px-3 py-2">
                         <div className="text-xs font-semibold text-foreground">{t.symbol}</div>
                         {t.instrument_type === "option" && (
