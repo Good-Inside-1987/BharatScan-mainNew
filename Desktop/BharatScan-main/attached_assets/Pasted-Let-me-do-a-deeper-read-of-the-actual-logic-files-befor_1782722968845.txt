@@ -1,0 +1,50 @@
+Let me do a deeper read of the actual logic files before answering.Identified fifteen critical deployment issues spanning infrastructure, database, and error handlingIdentified fifteen critical deployment issues spanning infrastructure, database, and error handlingGood, I have everything I need. Here's the complete picture beyond what I already flagged:
+
+🔴 Critical New Issues
+1. SPA routing will 404 on page refresh
+
+The app uses BrowserRouter (not HashRouter). On Oracle, if you're on /options or /portfolio and press refresh, the browser asks Express for that path — Express has no route for it and returns a 404. Express needs a catch-all * route to serve index.html for every non-API request. Without this, every page except the root will break on refresh.
+2. express.json() has no size limit
+
+Default Express body limit is 100kb. Your ConditionRow.tsx is 2,483 lines — complex scans with many conditions stored as JSON could easily exceed this. Need express.json({ limit: '10mb' }) in server/src/index.ts.
+3. No global error handler on Express — server will silently fail
+
+Zero try/catch in any route file. If SQLite throws (disk full, DB locked, constraint error), Express will crash the request or hang. Need a global error middleware added as the last middleware in server/src/index.ts.
+4. No GitHub Actions / no auto-deploy pipeline exists
+
+There's no .github/ folder at all. GitHub → Oracle auto-deploy requires either a GitHub Actions workflow or a webhook. Just pushing to GitHub does nothing on Oracle right now. This needs to be created.
+5. post-merge.sh must be completely rewritten for Oracle
+
+Current content: pnpm install --frozen-lockfile + pnpm --filter db push — the second line will always fail (no db package). The Oracle post-pull script needs to: install → build server → build frontend → restart PM2. The current script will break every auto-deploy.
+6. Market data from mergeApiStocks does NOT survive refresh
+
+Looking at DataContext carefully — mergeApiStocks puts data into React state (setHistories). The idb-keyval import is there but is only used for the folder handle, not for histories. So even with your FastAPI backend connected and data fetched, refreshing the browser wipes everything. This is the same problem you have today with CSVs, just with a different loading mechanism.
+
+🟠 Important Gaps
+7. No database indexes
+
+The SQLite schema has no indexes beyond primary keys. As data accumulates over Oracle's lifetime — thousands of saved scans, portfolios, alerts — queries will do full table scans. At minimum need indexes on saved_scans(updated_at), holdings(portfolio_id), alerts(status).
+8. No production start script at root level
+
+The root package.json has dev and build but no start. The server package.json has start: node dist/index.js, but PM2 on Oracle needs a clear entry point. Also needs an ecosystem.config.js for PM2 so it knows what to run, where to write logs, and how many instances.
+9. QueryClient has no configuration
+
+new QueryClient() with no options means: retries failed requests 3 times automatically, refetches data on every browser tab switch (refetchOnWindowFocus: true), considers data stale immediately. On Oracle this means constant unnecessary /api/scans, /api/alerts, /api/portfolio calls every time you switch tabs.
+10. bs:api-key is stored in localStorage, backup excludes it correctly but MarketApiPanel stores it in browser only
+
+After Oracle deployment, if you open the app from a different browser or device, the API key is gone and you have to re-enter it. The key should be saved to the server's app_settings table so it persists across devices and browsers.
+
+🟡 Minor But Worth Fixing
+11. proxy-22167.mjs is Replit-internal only
+
+This script proxies port 22167 → 5000, used by Replit's internal preview system. It won't run on Oracle unless accidentally started, but the scripts/package.json references it and it creates confusion. Worth removing or documenting.
+12. attached_assets alias path is fragile
+
+@assets in vite.config.ts resolves to ../../attached_assets relative to artifacts/bharatscan. This works in Replit's file structure. On Oracle after git clone, this path must also resolve correctly — the attached_assets folder must be at BharatScan-main/attached_assets. It likely will be fine, but needs to be confirmed during Oracle setup, otherwise the production build will fail silently with missing logo/favicon assets.
+13. express.json() body parsing has no type validation
+
+Routes do req.body as { name?: string; ... } with TypeScript type casting but no actual runtime validation. If someone sends malformed JSON to the server, it'll either crash or silently ignore bad fields. Since this is personal use for now it's low risk, but worth adding basic checks.
+
+Summary table — everything to fix before Oracle:
+IssueSeverityReplit vite plugins (previous analysis)🔴SPA 404 on refresh — no catch-all in Express🔴post-merge.sh broken — crashes every auto-deploy🔴No GitHub Actions workflow🔴Market data lost on refresh even with API connected🔴express.json() body size limit🔴No global Express error handler🔴No production start script / PM2 config🔴CORS wide open (previous analysis)🟠No DB indexes🟠QueryClient default config — unnecessary refetches🟠API key stays in browser only🟠No GitHub Actions auto-deploy pipeline🟠Node 22 must be explicitly installed on Oracle🟠Angel API integration doesn't exist yet (previous analysis)🟠proxy-22167.mjs Replit artifact🟡attached_assets alias path needs verification🟡No input validation in routes🟡
+The good news is that most of the 🔴 items are small targeted fixes — the SPA catch-all, body size limit, error handler, PM2 config, and post-merge.sh are all under 20 lines of code each. The big one is issue #6 — market data persistence — which is the entire Angel API + server-side data layer we already planned. Want me to start fixing these one by one?

@@ -1,0 +1,461 @@
+Implement Dynamic ATM / ITM / OTM Strike Selection Using Options CSV Data
+
+Objective
+
+Implement the complete Options Strike Selection logic in both of the following pages:
+
+* Create Scan Page
+* Strategies Backtest Page
+
+The implementation must work exactly the same on both pages.
+
+Do not use any hardcoded strike prices or assumptions.
+
+The application must determine ATM, ITM and OTM dynamically from the Options CSV data.
+
+⸻
+
+Existing UI
+
+The Options panel already contains:
+
+* Mode (Stocks / Options)
+* Universe
+    * Nifty50
+    * Futures
+* Option Side
+    * CE
+    * PE
+* Expiry
+* Strike Selection
+    * ATM
+    * ITM +1
+    * ITM +2
+    * OTM -1
+    * OTM -2
+
+Refer to the existing UI and preserve its appearance.
+
+Do not change the layout.
+
+Only implement the backend logic.
+
+⸻
+
+CSV Data
+
+The Options CSV files already contain:
+
+* Futures contracts
+* Options contracts
+* CE contracts
+* PE contracts
+* Strike Price
+* Expiry
+* Open
+* High
+* Low
+* Close
+* Symbol
+
+Use only the CSV data.
+
+Do not use any external APIs.
+
+Do not hardcode any strike values.
+
+⸻
+
+How ATM Must Be Determined
+
+ATM must always be calculated separately for every underlying stock or index.
+
+For every symbol:
+
+Example:
+
+RELIANCE Futures
+
+The Future Close Price determines where ATM is located.
+
+Example:
+
+Future Close = 2517
+
+Available CE strikes:
+
+2500
+
+2520
+
+2540
+
+2560
+
+Nearest strike to the Future Close is
+
+2520
+
+Therefore
+
+ATM = 2520
+
+This calculation must happen independently for every stock.
+
+Do NOT use Spot Price.
+
+Use the Futures Close Price available in the Options CSV.
+
+⸻
+
+Step 1
+
+Read the selected Universe.
+
+Possible values:
+
+* Nifty50
+* Futures
+
+Only symbols inside the selected Universe should be processed.
+
+⸻
+
+Step 2
+
+Read the selected Option Side.
+
+Possible values:
+
+* CE
+* PE
+
+⸻
+
+Step 3
+
+Read the selected Expiry.
+
+Example
+
+2026-06-30
+
+Only contracts having the selected expiry should be considered.
+
+⸻
+
+Step 4
+
+For every symbol
+
+Find the Futures contract
+
+Read its Close Price
+
+Find all available strike prices for the selected expiry
+
+Calculate the nearest strike to the Futures Close Price
+
+That strike becomes the ATM strike.
+
+⸻
+
+CE Strike Logic
+
+Once ATM is known
+
+Example
+
+Available strikes
+
+2480
+
+2500
+
+2520
+
+2540
+
+2560
+
+ATM
+
+2520
+
+If user selects
+
+ATM
+
+Use
+
+2520
+
+If user selects
+
+ITM +1
+
+Use one strike BELOW ATM
+
+2500
+
+If user selects
+
+ITM +2
+
+Use two strikes BELOW ATM
+
+2480
+
+If user selects
+
+OTM -1
+
+Use one strike ABOVE ATM
+
+2540
+
+If user selects
+
+OTM -2
+
+Use two strikes ABOVE ATM
+
+2560
+
+This logic applies to every symbol individually.
+
+⸻
+
+PE Strike Logic
+
+Once ATM is known
+
+Example
+
+2480
+
+2500
+
+2520
+
+2540
+
+2560
+
+ATM
+
+2520
+
+If user selects
+
+ATM
+
+Use
+
+2520
+
+If user selects
+
+OTM -1
+
+Use one strike BELOW ATM
+
+2500
+
+If user selects
+
+OTM -2
+
+Use two strikes BELOW ATM
+
+2480
+
+If user selects
+
+ITM +1
+
+Use one strike ABOVE ATM
+
+2540
+
+If user selects
+
+ITM +2
+
+Use two strikes ABOVE ATM
+
+2560
+
+Notice that CE and PE use opposite directions for ITM and OTM.
+
+Implement this correctly.
+
+⸻
+
+Final Contract Selection
+
+Once the following are known
+
+* Universe
+* Symbol
+* CE or PE
+* Expiry
+* Final Strike
+
+Locate the exact Options contract inside the CSV files.
+
+That contract becomes the option used for screening.
+
+⸻
+
+Scanner Behaviour
+
+When a scan is executed
+
+The application must
+
+Loop through every symbol in the selected Universe.
+
+For every symbol
+
+Calculate ATM dynamically.
+
+Convert ATM into the requested ITM or OTM strike according to CE or PE rules.
+
+Find the matching option contract.
+
+Evaluate every scanner condition using that contract.
+
+This must work for every symbol independently.
+
+Different stocks have different Futures prices.
+
+Therefore every stock has a different ATM strike.
+
+ATM is never a fixed value.
+
+⸻
+
+Important Rules
+
+Do NOT assume fixed strike intervals.
+
+Some symbols use
+
+₹10 intervals
+
+Some use
+
+₹20
+
+₹25
+
+₹50
+
+₹100
+
+Always use the actual strike prices available in the CSV.
+
+Never calculate strike prices using mathematical intervals.
+
+Always move to the previous or next available strike in the sorted strike list.
+
+⸻
+
+Edge Cases
+
+If the requested strike does not exist
+
+Example
+
+ATM is already the lowest strike
+
+User selects ITM +2
+
+Skip that symbol.
+
+Do not produce incorrect results.
+
+If expiry has no matching option chain
+
+Skip the symbol.
+
+If Futures data is missing
+
+Skip the symbol.
+
+Do not crash.
+
+⸻
+
+Performance
+
+The application may process hundreds of symbols.
+
+Optimize the implementation.
+
+Avoid repeatedly scanning all CSV files for every condition.
+
+Create efficient lookup maps indexed by:
+
+* Symbol
+* Expiry
+* Strike
+* Option Type
+
+Reuse these lookups during scan execution.
+
+⸻
+
+Existing Functionality
+
+Do not modify:
+
+* UI design
+* Existing filters
+* Existing scanner logic
+* Existing CSV parser
+* Existing condition builder
+
+Only extend the option selection engine.
+
+⸻
+
+Expected Result
+
+When the user selects:
+
+Universe = Nifty50
+
+Side = CE
+
+Expiry = 2026-06-30
+
+Strike = ITM +1
+
+The application should:
+
+1. Process every Nifty50 symbol.
+2. Find that symbol’s Futures Close Price.
+3. Determine the nearest available ATM strike.
+4. Move one available strike below ATM.
+5. Select that CE option contract.
+6. Evaluate the scanner using that contract.
+
+Similarly, when the user selects:
+
+Universe = Futures
+
+Side = PE
+
+Strike = OTM -2
+
+The application should:
+
+1. Process every Futures symbol.
+2. Determine the ATM strike from the Futures Close Price.
+3. Move two available strikes below ATM.
+4. Select the corresponding PE option contract.
+5. Run the scanner using that option.
+
+The implementation must be completely dynamic, use only the CSV data, support all symbols and expiries, and produce accurate results without any hardcoded strike values or assumptions.

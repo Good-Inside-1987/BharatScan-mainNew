@@ -1,0 +1,17 @@
+Good document overall — the planning is solid. Here are the gaps and issues I spotted:
+Wrong order — will cause problems
+CORS locking is in Phase 1, but you don't have a domain yet at that point. You only get the Cloudflare tunnel URL in Phase 3. Either skip it in Phase 1 and do it in Phase 3, or it'll be pointing to the wrong origin.
+Database versioning / migration system is placed in Phase 4, but every new table you add in Phase 2 needs migrations from day one. If you wait until Phase 4, you risk wiping your growing Oracle data when making schema changes. Move this to Phase 2.
+Missing from Phase 3 — Oracle setup will be incomplete without these
+pnpm installation on Oracle is not mentioned. Oracle's fresh Ubuntu won't have pnpm, only npm. The whole workspace uses pnpm — without it, nothing installs.
+Oracle firewall port configuration is completely missing. Oracle blocks all ports by default except SSH port 22. You need to manually open your app port in Oracle's Security List through their dashboard, otherwise the app will run but no browser can reach it.
+.env file creation on Oracle is not mentioned. The .env is gitignored (correctly), so it won't come from GitHub. Someone needs to create it manually on Oracle with DB_PATH, SERVER_PORT, Angel API credentials, etc. This step is easy to forget.
+Cloudflare Tunnel persistent process is not mentioned. The tunnel needs to keep running even after server restarts. Either PM2 or a systemd service needs to manage it — not described anywhere in Phase 3.
+Missing from Phase 2
+NSE holiday calendar auto-skip for the scheduler — sync should automatically skip weekends and market holidays without trying to fetch data on closed days. Not mentioned anywhere.
+Angel TOTP secret extraction is mentioned as needed, but the actual steps for getting the raw TOTP secret from Angel's setup (not just the QR code) are not described. This is non-obvious and will block the auto-refresh from working.
+Sensex options on BSE vs NSE — Sensex options trade on BSE, not NSE. Angel API may not provide them in the same format or at all. This needs to be verified before building the options sync, otherwise you build it and find it silently returns no data.
+Structural concern
+Phase 2 has 16+ items covering authentication, rate limiting, bulk fetching, scheduler, caching, 6 different data fetchers, ATM calculator, alerting, and a provider abstraction layer. This is realistically weeks of work, not a phase. The roadmap should either split it or acknowledge the timeline clearly so expectations are correct.
+"Caching layer" in Phase 2 is probably too early. Node.js SQLite is synchronous and fast — caching adds complexity without a proven need. Better to add it when you actually see slowness in Phase 3 or later.
+Everything else in the document is correct. The database plan, backup strategy, data sources, deployment pipeline, Angel two-key setup, and the phased monetisation plan are all solid. The Phase 1 fix list matches exactly what I found in the code.
