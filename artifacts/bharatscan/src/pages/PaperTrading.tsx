@@ -418,7 +418,7 @@ export default function PaperTrading() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setShowStockTrade(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 active:scale-95 transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 active:scale-95 transition"
             >
               <Plus className="h-3.5 w-3.5" /> Trade in Stocks
             </button>
