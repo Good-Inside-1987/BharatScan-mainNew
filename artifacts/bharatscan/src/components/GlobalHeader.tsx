@@ -65,7 +65,7 @@ export function GlobalHeader() {
             </div>
           </div>
           {/* Market Status */}
-          <div className="mt-1 ml-10">
+          <div className="mt-0 ml-10">
             <div className="flex items-center gap-1.5">
               <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold whitespace-nowrap">
                 Market Is
@@ -83,7 +83,7 @@ export function GlobalHeader() {
               </span>
             </div>
             {occasion && (
-              <p className="text-[9px] text-muted-foreground mt-0.5" title={occasion}>
+              <p className="text-[9px] text-muted-foreground" title={occasion}>
                 {occasion}
               </p>
             )}
