@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Wallet, TrendingUp, TrendingDown, Plus, X, RefreshCw, History,
   ArrowUpRight, ArrowDownRight, Trash2, Settings2, Radio, Target, AlertTriangle, XCircle,
+  ChevronLeft, ChevronRight, ShoppingCart,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useData } from "@/context/DataContext";
@@ -53,6 +54,34 @@ function fmtDate(iso: string): string {
 const DEFAULT_LOT_SIZES: Record<string, number> = {
   NIFTY: 75, BANKNIFTY: 30, FINNIFTY: 40, MIDCPNIFTY: 120, NIFTYNXT50: 25, SENSEX: 20,
 };
+
+// ─── Options chain trade flow types & helpers ─────────────────────────────────
+
+interface DraftLeg {
+  id: string;
+  underlying: string;
+  expiry: string;
+  strike: number;
+  type: "CE" | "PE";
+  action: "BUY" | "SELL";
+  lots: number;
+  lotSize: number;
+  entryPrice: number;
+}
+
+function optDelta(spot: number, strike: number, type: "CE" | "PE", dte: number): number {
+  if (spot <= 0) return type === "CE" ? 0.5 : -0.5;
+  const σ = 0.15, T = Math.max(dte / 365, 1 / 365);
+  const d1 = (Math.log(spot / strike) + 0.5 * σ * σ * T) / (σ * Math.sqrt(T));
+  const nd1 = 0.5 * (1 + Math.tanh(d1 * 0.7071));
+  return type === "CE" ? +nd1.toFixed(2) : +(nd1 - 1).toFixed(2);
+}
+
+function optDte(today: string, expiry: string): number {
+  return Math.max(0, Math.round((new Date(expiry).getTime() - new Date(today).getTime()) / 86400000));
+}
+
+const CHAIN_INDEX_ORDER = ["NIFTY", "BANKNIFTY", "FINNIFTY", "NIFTYNXT50", "MIDCPNIFTY", "SENSEX", "BANKEX"];
 
 function getStockLtp(histories: { symbol: string; bars: { date: string; close: number }[] }[], symbol: string, asOfDate: string | null): number | null {
   const h = histories.find((s) => s.symbol.toUpperCase() === symbol.toUpperCase());
@@ -172,6 +201,7 @@ export default function PaperTrading() {
   const [showStockTrade, setShowStockTrade] = useState(false);
   const [showFuturesTrade, setShowFuturesTrade] = useState(false);
   const [showOptionsTrade, setShowOptionsTrade] = useState(false);
+  const [optionsSubmitting, setOptionsSubmitting] = useState(false);
   const [closingPosition, setClosingPosition] = useState<ApiPaperPosition | null>(null);
   const [closingAll, setClosingAll] = useState(false);
   const [positionFilter, setPositionFilter] = useState<"all" | "stock" | "future" | "option">("all");
@@ -343,11 +373,43 @@ export default function PaperTrading() {
       qc.invalidateQueries({ queryKey: ["paper-positions", accountId] });
       setShowStockTrade(false);
       setShowFuturesTrade(false);
-      setShowOptionsTrade(false);
       toast.success("Order executed");
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  async function handleOptionsBasketSubmit(legs: DraftLeg[]) {
+    if (!accountId) return;
+    setOptionsSubmitting(true);
+    let ok = 0;
+    for (const leg of legs) {
+      try {
+        await apiOpenPaperPosition(accountId, {
+          instrument_type: "option",
+          symbol: `${leg.underlying}${leg.strike}${leg.type}`,
+          underlying: leg.underlying,
+          strike: leg.strike,
+          option_type: leg.type,
+          expiry: leg.expiry,
+          side: leg.action === "BUY" ? "long" : "short",
+          qty: leg.lots,
+          lot_size: leg.lotSize,
+          entry_price: leg.entryPrice,
+          entry_date: todayIso(),
+        });
+        ok++;
+      } catch {
+        toast.error(`Failed: ${leg.underlying} ${leg.strike}${leg.type}`);
+      }
+    }
+    setOptionsSubmitting(false);
+    if (ok > 0) {
+      qc.invalidateQueries({ queryKey: ["paper-accounts"] });
+      qc.invalidateQueries({ queryKey: ["paper-positions", accountId] });
+      setShowOptionsTrade(false);
+      toast.success(`${ok} order${ok !== 1 ? "s" : ""} placed`);
+    }
+  }
 
   const closePositionMut = useMutation({
     mutationFn: (body: { positionId: string; qty_closed: number; exit_price: number; exit_date: string }) =>
@@ -684,19 +746,14 @@ export default function PaperTrading() {
         />
       )}
       {showOptionsTrade && account && (
-        <NewTradeModal
-          forcedMode="options"
-          onClose={() => setShowOptionsTrade(false)}
-          stockSymbols={stockSymbols}
-          underlyingSymbols={underlyingSymbols}
+        <OptionsChainTradeFlow
           optionsData={optionsData}
-          histories={histories}
-          asOfDate={asOfDate}
-          asOfOptionsDate={asOfOptionsDate}
-          cashBalance={account.cash_balance}
           lotSizes={csvLotSizes}
-          pending={openPositionMut.isPending}
-          onSubmit={(body) => openPositionMut.mutate(body)}
+          cashBalance={account.cash_balance}
+          underlyingSymbols={underlyingSymbols}
+          onClose={() => setShowOptionsTrade(false)}
+          onConfirm={handleOptionsBasketSubmit}
+          submitting={optionsSubmitting}
         />
       )}
 
@@ -1619,6 +1676,529 @@ function TradeInFuturesModal({
               className={`px-7 py-2.5 text-sm font-bold rounded-lg transition disabled:opacity-40 active:scale-95 ${side === "long" ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-red-500 hover:bg-red-600 text-white"}`}
             >
               {pending ? "Placing…" : side === "long" ? "Buy" : "Sell"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ─── Options Chain Trade Flow ─────────────────────────────────────────────────
+
+function OptionsChainTradeFlow({
+  optionsData, lotSizes, cashBalance, underlyingSymbols,
+  onClose, onConfirm, submitting,
+}: {
+  optionsData: ReturnType<typeof useData>["optionsData"];
+  lotSizes: ReturnType<typeof useData>["lotSizes"];
+  cashBalance: number;
+  underlyingSymbols: string[];
+  onClose: () => void;
+  onConfirm: (legs: DraftLeg[]) => void;
+  submitting: boolean;
+}) {
+  const [step, setStep] = useState<"basket" | "chain" | "review">("basket");
+  const [draftLegs, setDraftLegs] = useState<DraftLeg[]>([]);
+
+  // Chain state
+  const symbols = useMemo(() => {
+    const base = optionsData ? Array.from(optionsData.expiriesBySymbol.keys()) : underlyingSymbols;
+    return base.sort((a, b) => {
+      const ia = CHAIN_INDEX_ORDER.indexOf(a), ib = CHAIN_INDEX_ORDER.indexOf(b);
+      if (ia >= 0 && ib >= 0) return ia - ib;
+      if (ia >= 0) return -1; if (ib >= 0) return 1;
+      return a.localeCompare(b);
+    });
+  }, [optionsData, underlyingSymbols]);
+
+  const [activeSymbol, setActiveSymbol] = useState(() => {
+    const first = CHAIN_INDEX_ORDER.find((s) => symbols.includes(s));
+    return first ?? symbols[0] ?? "";
+  });
+  const [selectedExpiry, setSelectedExpiry] = useState("");
+  const [hoveredStrike, setHoveredStrike] = useState<number | null>(null);
+  const chainScrollRef = useRef<HTMLDivElement>(null);
+  const expiryScrollRef = useRef<HTMLDivElement>(null);
+  // per-cell lots: `${strike}|${type}` → lots
+  const [rowLots, setRowLots] = useState<Map<string, number>>(new Map());
+
+  // Latest available date (treat as "live")
+  const liveDate = useMemo(() => {
+    if (!optionsData) return "";
+    return optionsData.dates[optionsData.dates.length - 1] ?? "";
+  }, [optionsData]);
+
+  const expiries = useMemo(() => {
+    if (!optionsData || !activeSymbol) return [];
+    return (optionsData.expiriesBySymbol.get(activeSymbol) ?? []).filter((e) => e >= liveDate);
+  }, [optionsData, activeSymbol, liveDate]);
+
+  const activeExpiry = useMemo(() => {
+    if (selectedExpiry && expiries.includes(selectedExpiry)) return selectedExpiry;
+    return expiries[0] ?? "";
+  }, [selectedExpiry, expiries]);
+
+  const chain = useMemo(() => {
+    if (!optionsData || !activeSymbol || !activeExpiry || !liveDate) return [];
+    const strikes = optionsData.strikesByKey.get(`${activeSymbol}|${activeExpiry}`) ?? [];
+    const map = new Map<number, { ce: number; pe: number; ceOI: number; peOI: number }>();
+    for (const b of optionsData.bars) {
+      if (b.symbol !== activeSymbol || b.expiry !== activeExpiry || b.date !== liveDate) continue;
+      const e = map.get(b.strike) ?? { ce: 0, pe: 0, ceOI: 0, peOI: 0 };
+      if (b.type === "CE") { e.ce = b.close; e.ceOI = b.oi; }
+      else { e.pe = b.close; e.peOI = b.oi; }
+      map.set(b.strike, e);
+    }
+    return strikes.filter((s) => map.has(s)).map((s) => ({ strike: s, ...map.get(s)! }));
+  }, [optionsData, activeSymbol, activeExpiry, liveDate]);
+
+  const spot = useMemo(() => {
+    if (!optionsData || !activeSymbol || !liveDate) return 0;
+    return optionsData.futuresCloseByKey.get(`${activeSymbol}|${liveDate}`) ?? 0;
+  }, [optionsData, activeSymbol, liveDate]);
+
+  const atmK = useMemo(() => {
+    if (!spot || !chain.length) return 0;
+    return chain.reduce((best, r) => Math.abs(r.strike - spot) < Math.abs(best - spot) ? r.strike : best, chain[0].strike);
+  }, [spot, chain]);
+
+  const maxOI = useMemo(() => Math.max(1, ...chain.map((r) => Math.max(r.ceOI, r.peOI))), [chain]);
+  const dte = useMemo(() => optDte(liveDate, activeExpiry), [liveDate, activeExpiry]);
+  const lotSize = getLotSizeForExpiry(lotSizes, activeSymbol, activeExpiry, DEFAULT_LOT_SIZES[activeSymbol] ?? 1);
+
+  // Scroll ATM into view when chain loads or expiry changes
+  useEffect(() => {
+    if (step !== "chain" || !chainScrollRef.current || !atmK) return;
+    const el = chainScrollRef.current.querySelector<HTMLElement>('[data-atm="true"]');
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [atmK, activeExpiry, step]);
+
+  useEffect(() => {
+    if (!expiryScrollRef.current || !activeExpiry) return;
+    const el = expiryScrollRef.current.querySelector<HTMLButtonElement>(`[data-expiry="${activeExpiry}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, [activeExpiry]);
+
+  // Leg index for B/S button state
+  const legIndex = useMemo(() => {
+    const map = new Map<string, ("BUY" | "SELL")[]>();
+    for (const l of draftLegs) {
+      if (l.underlying !== activeSymbol || l.expiry !== activeExpiry) continue;
+      const key = `${l.strike}|${l.type}`;
+      map.set(key, [...(map.get(key) ?? []), l.action]);
+    }
+    return map;
+  }, [draftLegs, activeSymbol, activeExpiry]);
+
+  function getRowLots(strike: number, type: "CE" | "PE"): number {
+    return rowLots.get(`${strike}|${type}`) ?? 1;
+  }
+
+  function adjustRowLots(strike: number, type: "CE" | "PE", delta: number) {
+    const cur = getRowLots(strike, type);
+    const next = Math.max(1, cur + delta);
+    setRowLots((m) => { const n = new Map(m); n.set(`${strike}|${type}`, next); return n; });
+    // Sync existing draft leg if any
+    setDraftLegs((prev) => prev.map((l) =>
+      l.underlying === activeSymbol && l.expiry === activeExpiry && l.strike === strike && l.type === type
+        ? { ...l, lots: next }
+        : l
+    ));
+  }
+
+  function toggleLeg(strike: number, type: "CE" | "PE", action: "BUY" | "SELL", price: number) {
+    if (price <= 0) return;
+    const exists = draftLegs.find((l) =>
+      l.underlying === activeSymbol && l.expiry === activeExpiry &&
+      l.strike === strike && l.type === type && l.action === action
+    );
+    if (exists) {
+      setDraftLegs((prev) => prev.filter((l) => l.id !== exists.id));
+    } else {
+      const lots = getRowLots(strike, type);
+      setDraftLegs((prev) => [
+        ...prev.filter((l) => !(l.underlying === activeSymbol && l.expiry === activeExpiry && l.strike === strike && l.type === type)),
+        { id: crypto.randomUUID(), underlying: activeSymbol, expiry: activeExpiry, strike, type, action, lots, lotSize, entryPrice: price },
+      ]);
+    }
+  }
+
+  function stepExpiry(dir: "left" | "right") {
+    const idx = expiries.indexOf(activeExpiry);
+    const next = dir === "left" ? expiries[idx - 1] : expiries[idx + 1];
+    if (next) setSelectedExpiry(next);
+  }
+
+  useEffect(() => {
+    const fn = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", fn);
+    return () => document.removeEventListener("keydown", fn);
+  }, [onClose]);
+
+  const totalLegs = draftLegs.length;
+
+  // ── Screen 1: Basket ──────────────────────────────────────────────────────
+  if (step === "basket") {
+    return createPortal(
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+        <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <ShoppingCart className="h-4 w-4 text-primary" /> Trade in Options
+            </h2>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="px-5 py-8 flex flex-col items-center justify-center min-h-[220px]">
+            {draftLegs.length === 0 ? (
+              <>
+                <div className="w-16 h-16 rounded-full bg-muted/40 flex items-center justify-center mb-4">
+                  <Plus className="h-8 w-8 text-muted-foreground/60" />
+                </div>
+                <p className="text-sm text-muted-foreground mb-1 font-medium">Your basket is empty</p>
+                <p className="text-xs text-muted-foreground/60 mb-6 text-center">Use the option chain to add call and put legs to your trade</p>
+                <button onClick={() => setStep("chain")}
+                  className="flex items-center gap-2 px-6 py-2.5 text-sm font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 active:scale-95 transition">
+                  <Plus className="h-4 w-4" /> Add Orders
+                </button>
+              </>
+            ) : (
+              <div className="w-full space-y-2">
+                {draftLegs.map((leg) => (
+                  <div key={leg.id} className="flex items-center justify-between bg-muted/30 border border-border rounded-lg px-3 py-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${leg.action === "BUY" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" : "bg-red-500/20 text-red-400 border border-red-500/30"}`}>
+                        {leg.action}
+                      </span>
+                      <span className="font-semibold text-foreground">{leg.underlying} {fmtDate(leg.expiry)} {leg.strike} {leg.type}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-muted-foreground">{leg.lots}L · ₹{leg.entryPrice.toFixed(1)}</span>
+                      <button onClick={() => setDraftLegs((p) => p.filter((l) => l.id !== leg.id))}
+                        className="text-muted-foreground hover:text-red-400 transition-colors">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex gap-2 pt-2">
+                  <button onClick={() => setStep("chain")}
+                    className="flex-1 py-2 text-xs font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 transition">
+                    <Plus className="h-3.5 w-3.5 inline mr-1" />Add More
+                  </button>
+                  <button onClick={() => setStep("review")}
+                    className="flex-1 py-2 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition">
+                    Review Orders ({draftLegs.length})
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="px-5 pb-4 text-[10px] text-muted-foreground/60 text-center">
+            Available: ₹{cashBalance.toLocaleString("en-IN", { minimumFractionDigits: 0 })}
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  // ── Screen 2: Live option chain ──────────────────────────────────────────
+  if (step === "chain") {
+    return createPortal(
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div className="w-full max-w-[580px] flex flex-col bg-[#0d1117] border border-border/60 rounded-2xl shadow-2xl overflow-hidden" style={{ maxHeight: "90vh" }}>
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 shrink-0">
+            <div className="flex items-center gap-2">
+              <button onClick={() => setStep("basket")} className="text-muted-foreground hover:text-foreground transition-colors">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <select value={activeSymbol} onChange={(e) => { setActiveSymbol(e.target.value); setSelectedExpiry(""); }}
+                className="text-xs font-bold bg-transparent border border-border/60 rounded px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 max-w-[150px]">
+                {symbols.filter((s) => CHAIN_INDEX_ORDER.includes(s)).length > 0 && (
+                  <optgroup label="Indices">
+                    {symbols.filter((s) => CHAIN_INDEX_ORDER.includes(s)).map((s) => <option key={s} value={s}>{s}</option>)}
+                  </optgroup>
+                )}
+                {symbols.filter((s) => !CHAIN_INDEX_ORDER.includes(s)).length > 0 && (
+                  <optgroup label="Stocks">
+                    {symbols.filter((s) => !CHAIN_INDEX_ORDER.includes(s)).map((s) => <option key={s} value={s}>{s}</option>)}
+                  </optgroup>
+                )}
+              </select>
+              {spot > 0 && <span className="text-sm font-bold text-foreground tabular-nums">{spot.toLocaleString("en-IN")}</span>}
+              {liveDate && <span className="text-[10px] text-muted-foreground/60">{liveDate}</span>}
+            </div>
+            <div className="flex items-center gap-2">
+              {totalLegs > 0 && <span className="text-[10px] text-muted-foreground">{totalLegs} leg{totalLegs !== 1 ? "s" : ""}</span>}
+              <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors"><X className="h-4 w-4" /></button>
+            </div>
+          </div>
+
+          {/* Expiry tabs */}
+          <div className="flex items-stretch border-b border-border/50 bg-muted/10 shrink-0">
+            <button type="button" onClick={() => stepExpiry("left")} disabled={expiries.indexOf(activeExpiry) <= 0}
+              className="px-1.5 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/30 disabled:opacity-25 border-r border-border/40 transition-colors">
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <div ref={expiryScrollRef} className="flex gap-1 px-2 py-1 overflow-x-auto flex-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {expiries.map((exp) => {
+                const label = new Date(exp + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+                const daysLeft = optDte(liveDate, exp);
+                const isActive = exp === activeExpiry;
+                return (
+                  <button key={exp} data-expiry={exp} type="button" onClick={() => setSelectedExpiry(exp)}
+                    className={`shrink-0 flex flex-col items-center px-2.5 py-0.5 rounded text-center transition-all ${isActive ? "bg-primary text-primary-foreground shadow-md scale-105" : "bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                    <span className="text-[9px] font-bold leading-tight whitespace-nowrap">{label}</span>
+                    <span className={`text-[7px] leading-tight ${isActive ? "text-primary-foreground/80" : "text-foreground/50"}`}>{daysLeft}d</span>
+                  </button>
+                );
+              })}
+              {expiries.length === 0 && <span className="text-[10px] text-muted-foreground/50 flex items-center">No expiries</span>}
+            </div>
+            <button type="button" onClick={() => stepExpiry("right")} disabled={expiries.indexOf(activeExpiry) >= expiries.length - 1}
+              className="px-1.5 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/30 disabled:opacity-25 border-l border-border/40 transition-colors">
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* Chain column headers */}
+          <div className="grid grid-cols-[44fr_52fr_80fr_60fr_80fr_52fr_44fr] text-[9px] uppercase tracking-wide text-foreground/50 border-b border-border/50 bg-muted/20 shrink-0 px-1 font-semibold">
+            <div className="py-1 text-right pr-1">CΔ</div>
+            <div className="py-1 text-right pr-1">CE LTP</div>
+            <div className="py-1 text-right pr-2">OI (CE)</div>
+            <div className="py-1 text-center text-foreground/70">Strike</div>
+            <div className="py-1 text-left pl-2">OI (PE)</div>
+            <div className="py-1 text-left pl-1">PE LTP</div>
+            <div className="py-1 text-left pl-1">PΔ</div>
+          </div>
+
+          {/* Chain rows */}
+          <div ref={chainScrollRef} className="flex-1 overflow-y-auto">
+            {!optionsData ? (
+              <div className="flex items-center justify-center h-32 text-xs text-muted-foreground/50">Upload options CSV to see live chain</div>
+            ) : chain.length === 0 ? (
+              <div className="flex items-center justify-center h-32 text-xs text-muted-foreground/50">No data for this expiry</div>
+            ) : chain.map((row) => {
+              const isATM = row.strike === atmK;
+              const ceDelta = optDelta(spot, row.strike, "CE", dte);
+              const peDelta = optDelta(spot, row.strike, "PE", dte);
+              const isCeITM = !isATM && spot > 0 && row.strike < spot;
+              const isPeITM = !isATM && spot > 0 && row.strike > spot;
+              const ceCellBg = isATM ? "bg-cyan-500/[0.18]" : isCeITM ? "bg-green-500/10" : "";
+              const peCellBg = isATM ? "bg-cyan-500/[0.18]" : isPeITM ? "bg-orange-500/10" : "";
+              const strikeBg = isATM ? "bg-cyan-500/30" : "bg-white/5";
+              const ceActions = legIndex.get(`${row.strike}|CE`) ?? [];
+              const peActions = legIndex.get(`${row.strike}|PE`) ?? [];
+              const ceLots = getRowLots(row.strike, "CE");
+              const peLots = getRowLots(row.strike, "PE");
+              const showCeBtns = (hoveredStrike === row.strike || ceActions.length > 0) && row.ce > 0;
+              const showPeBtns = (hoveredStrike === row.strike || peActions.length > 0) && row.pe > 0;
+
+              return (
+                <div key={row.strike} data-atm={isATM ? "true" : undefined}
+                  onMouseEnter={() => setHoveredStrike(row.strike)}
+                  onMouseLeave={() => setHoveredStrike(null)}
+                  className={`grid grid-cols-[44fr_52fr_80fr_60fr_80fr_52fr_44fr] border-b px-1 ${isATM ? "border-cyan-500/40" : "border-border/10"}`}>
+
+                  {/* Call Delta */}
+                  <div className={`py-1.5 text-right pr-1 text-[10px] tabular-nums font-medium ${ceCellBg} ${ceDelta > 0.5 ? "text-emerald-400" : ceDelta < 0.2 ? "text-foreground/35" : "text-foreground/65"}`}>
+                    {row.ce > 0 ? ceDelta.toFixed(2) : "—"}
+                  </div>
+
+                  {/* CE LTP */}
+                  <div className={`py-1 text-right pr-1 flex flex-col justify-center items-end ${ceCellBg}`}>
+                    <span className={`text-[10px] font-bold tabular-nums leading-none ${row.ce > 0 ? "text-foreground" : "text-foreground/25"}`}>
+                      {row.ce > 0 ? row.ce.toFixed(1) : "—"}
+                    </span>
+                  </div>
+
+                  {/* CE OI + B/S buttons */}
+                  {(() => {
+                    const hasBuy = ceActions.includes("BUY"), hasSell = ceActions.includes("SELL");
+                    return (
+                      <div className={`py-1.5 relative flex flex-col items-end justify-center gap-0.5 pr-1 ${ceCellBg}`}>
+                        <div className="w-full flex justify-end">
+                          <div className="h-1.5 bg-green-500/35 rounded-sm" style={{ width: `${(row.ceOI / maxOI) * 100}%` }} />
+                        </div>
+                        <span className="text-[8px] text-foreground/40 tabular-nums">{row.ceOI > 0 ? (row.ceOI / 100000).toFixed(1) + "L" : ""}</span>
+                        {showCeBtns && (
+                          <div className="absolute inset-0 flex flex-col items-start justify-center pl-1 gap-0.5">
+                            <div className="flex gap-1">
+                              <button type="button" onClick={() => toggleLeg(row.strike, "CE", "BUY", row.ce)}
+                                className={`text-[9px] font-bold px-2 py-0.5 rounded transition-colors shadow-md leading-tight ${hasBuy ? "bg-blue-500 text-white ring-1 ring-blue-300" : "bg-blue-600/60 text-blue-200 hover:bg-blue-500"}`}>B</button>
+                              <button type="button" onClick={() => toggleLeg(row.strike, "CE", "SELL", row.ce)}
+                                className={`text-[9px] font-bold px-2 py-0.5 rounded transition-colors shadow-md leading-tight ${hasSell ? "bg-red-500 text-white ring-1 ring-red-300" : "bg-red-600/60 text-red-200 hover:bg-red-500"}`}>S</button>
+                            </div>
+                            {(hasBuy || hasSell) && (
+                              <div className="flex items-center gap-0.5 ml-0.5">
+                                <button type="button" onClick={() => adjustRowLots(row.strike, "CE", -1)} className="text-[9px] text-muted-foreground hover:text-foreground px-0.5 leading-none">−</button>
+                                <span className="text-[9px] font-bold text-foreground tabular-nums">{ceLots}</span>
+                                <button type="button" onClick={() => adjustRowLots(row.strike, "CE", +1)} className="text-[9px] text-muted-foreground hover:text-foreground px-0.5 leading-none">+</button>
+                                <span className="text-[8px] text-muted-foreground/50 ml-0.5">L</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Strike */}
+                  <div className={`py-1.5 flex items-center justify-center text-[11px] font-bold tabular-nums ${strikeBg} ${isATM ? "text-cyan-300" : "text-foreground/80"}`}>
+                    {isATM && <span className="text-[8px] text-cyan-400 mr-0.5">★</span>}
+                    {row.strike.toLocaleString("en-IN")}
+                  </div>
+
+                  {/* PE OI + B/S buttons */}
+                  {(() => {
+                    const hasBuy = peActions.includes("BUY"), hasSell = peActions.includes("SELL");
+                    return (
+                      <div className={`py-1.5 relative flex flex-col items-start justify-center gap-0.5 pl-1 ${peCellBg}`}>
+                        <div className="h-1.5 bg-red-500/35 rounded-sm" style={{ width: `${(row.peOI / maxOI) * 100}%` }} />
+                        <span className="text-[8px] text-foreground/40 tabular-nums">{row.peOI > 0 ? (row.peOI / 100000).toFixed(1) + "L" : ""}</span>
+                        {showPeBtns && (
+                          <div className="absolute inset-0 flex flex-col items-end justify-center pr-1 gap-0.5">
+                            <div className="flex gap-1">
+                              <button type="button" onClick={() => toggleLeg(row.strike, "PE", "BUY", row.pe)}
+                                className={`text-[9px] font-bold px-2 py-0.5 rounded transition-colors shadow-md leading-tight ${hasBuy ? "bg-blue-500 text-white ring-1 ring-blue-300" : "bg-blue-600/60 text-blue-200 hover:bg-blue-500"}`}>B</button>
+                              <button type="button" onClick={() => toggleLeg(row.strike, "PE", "SELL", row.pe)}
+                                className={`text-[9px] font-bold px-2 py-0.5 rounded transition-colors shadow-md leading-tight ${hasSell ? "bg-red-500 text-white ring-1 ring-red-300" : "bg-red-600/60 text-red-200 hover:bg-red-500"}`}>S</button>
+                            </div>
+                            {(hasBuy || hasSell) && (
+                              <div className="flex items-center gap-0.5 mr-0.5">
+                                <button type="button" onClick={() => adjustRowLots(row.strike, "PE", -1)} className="text-[9px] text-muted-foreground hover:text-foreground px-0.5 leading-none">−</button>
+                                <span className="text-[9px] font-bold text-foreground tabular-nums">{peLots}</span>
+                                <button type="button" onClick={() => adjustRowLots(row.strike, "PE", +1)} className="text-[9px] text-muted-foreground hover:text-foreground px-0.5 leading-none">+</button>
+                                <span className="text-[8px] text-muted-foreground/50 ml-0.5">L</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* PE LTP */}
+                  <div className={`py-1 text-left pl-1 flex flex-col justify-center items-start ${peCellBg}`}>
+                    <span className={`text-[10px] font-bold tabular-nums leading-none ${row.pe > 0 ? "text-foreground" : "text-foreground/25"}`}>
+                      {row.pe > 0 ? row.pe.toFixed(1) : "—"}
+                    </span>
+                  </div>
+
+                  {/* Put Delta */}
+                  <div className={`py-1.5 text-left pl-1 text-[10px] tabular-nums font-medium ${peCellBg} ${Math.abs(peDelta) > 0.5 ? "text-red-400" : Math.abs(peDelta) < 0.2 ? "text-foreground/35" : "text-foreground/65"}`}>
+                    {row.pe > 0 ? peDelta.toFixed(2) : "—"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Chain footer */}
+          <div className="flex items-center justify-between px-3 py-2.5 border-t border-border/40 bg-muted/10 shrink-0">
+            <span className="text-xs text-muted-foreground">{totalLegs} leg{totalLegs !== 1 ? "s" : ""} selected</span>
+            <div className="flex gap-2">
+              <button onClick={() => setDraftLegs([])} disabled={totalLegs === 0}
+                className="px-3 py-1.5 text-xs font-semibold border border-border/60 text-muted-foreground hover:text-foreground rounded-lg disabled:opacity-40 transition">
+                Clear
+              </button>
+              <button disabled={totalLegs === 0} onClick={() => setStep("basket")}
+                className="px-5 py-1.5 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-40 active:scale-95 transition">
+                Add ({totalLegs})
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
+
+  // ── Screen 3: Review orders ────────────────────────────────────────────────
+  const totalMargin = draftLegs.reduce((s, l) => s + l.entryPrice * l.lots * l.lotSize, 0);
+  const insufficient = totalMargin > cashBalance && totalMargin > 0;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Review Orders</h2>
+            <p className="text-[10px] text-primary font-medium mt-0.5">{draftLegs.length} leg{draftLegs.length !== 1 ? "s" : ""} — Paper Trade</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors"><X className="h-4 w-4" /></button>
+        </div>
+
+        {/* Column headers */}
+        <div className="grid grid-cols-[60px_1fr_64px_80px_36px] text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-4 py-2 border-b border-border bg-muted/20">
+          <div>Action</div>
+          <div>Instrument</div>
+          <div className="text-right">Qty</div>
+          <div className="text-right">Price</div>
+          <div />
+        </div>
+
+        {/* Leg rows */}
+        <div className="max-h-[40vh] overflow-y-auto">
+          {draftLegs.map((leg) => (
+            <div key={leg.id} className="grid grid-cols-[60px_1fr_64px_80px_36px] items-center px-4 py-2.5 border-b border-border/50 text-xs hover:bg-muted/20 transition">
+              <div>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${leg.action === "BUY" ? "bg-blue-500/15 text-blue-400 border border-blue-500/30" : "bg-red-500/15 text-red-400 border border-red-500/30"}`}>
+                  {leg.action === "BUY" ? "Buy" : "Sell"}
+                </span>
+              </div>
+              <div className="font-medium text-foreground truncate pr-2 text-[11px]">
+                {leg.underlying} {fmtDate(leg.expiry)} {leg.strike} {leg.type}
+              </div>
+              <div className="text-right tabular-nums text-foreground font-semibold">{leg.lots * leg.lotSize}</div>
+              <div className="text-right tabular-nums text-foreground">₹{leg.entryPrice.toFixed(2)}</div>
+              <div className="flex justify-end">
+                <button onClick={() => setDraftLegs((p) => p.filter((l) => l.id !== leg.id))}
+                  className="text-muted-foreground hover:text-red-400 transition-colors p-1">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="px-4 py-3.5 border-t border-border bg-muted/10">
+          <div className="flex items-center justify-between mb-3 text-xs">
+            <div className="space-y-0.5">
+              <div className="text-muted-foreground">
+                Total margin: <span className={`font-semibold ${insufficient ? "text-red-400" : "text-foreground"}`}>
+                  ₹{totalMargin.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span className="text-muted-foreground/60 ml-1">(1×)</span>
+              </div>
+              <div className="text-muted-foreground">
+                Available: <span className={`font-semibold ${insufficient ? "text-red-400" : "text-foreground"}`}>
+                  ₹{cashBalance.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              {insufficient && <div className="text-[10px] text-red-500 font-medium">Insufficient balance</div>}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setStep("chain")}
+              className="px-4 py-2 text-xs font-semibold border border-border/60 text-muted-foreground hover:text-foreground rounded-lg transition">
+              ← Back
+            </button>
+            <button
+              disabled={draftLegs.length === 0 || insufficient || submitting}
+              onClick={() => onConfirm(draftLegs)}
+              className="flex-1 py-2 text-xs font-bold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-40 active:scale-95 transition">
+              {submitting ? "Placing…" : `Confirm & Place (${draftLegs.length} leg${draftLegs.length !== 1 ? "s" : ""})`}
             </button>
           </div>
         </div>
