@@ -1923,49 +1923,15 @@ function OptionsChainTradeFlow({
           </div>
 
           <div className="px-5 py-8 flex flex-col items-center justify-center min-h-[220px]">
-            {draftLegs.length === 0 ? (
-              <>
-                <div className="w-16 h-16 rounded-full bg-muted/40 flex items-center justify-center mb-4">
-                  <Plus className="h-8 w-8 text-muted-foreground/60" />
-                </div>
-                <p className="text-sm text-muted-foreground mb-1 font-medium">Your basket is empty</p>
-                <p className="text-xs text-muted-foreground/60 mb-6 text-center">Use the option chain to add call and put legs to your trade</p>
-                <button onClick={() => setStep("chain")}
-                  className="flex items-center gap-2 px-6 py-2.5 text-sm font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 active:scale-95 transition">
-                  <Plus className="h-4 w-4" /> Add Orders
-                </button>
-              </>
-            ) : (
-              <div className="w-full space-y-2">
-                {draftLegs.map((leg) => (
-                  <div key={leg.id} className="flex items-center justify-between bg-muted/30 border border-border rounded-lg px-3 py-2 text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${leg.action === "BUY" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" : "bg-red-500/20 text-red-400 border border-red-500/30"}`}>
-                        {leg.action}
-                      </span>
-                      <span className="font-semibold text-foreground">{leg.underlying} {fmtDate(leg.expiry)} {leg.strike} {leg.type}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-muted-foreground">{leg.lots}L · ₹{leg.entryPrice.toFixed(1)}</span>
-                      <button onClick={() => setDraftLegs((p) => p.filter((l) => l.id !== leg.id))}
-                        className="text-muted-foreground hover:text-red-400 transition-colors">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                <div className="flex gap-2 pt-2">
-                  <button onClick={() => setStep("chain")}
-                    className="flex-1 py-2 text-xs font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 transition">
-                    <Plus className="h-3.5 w-3.5 inline mr-1" />Add More
-                  </button>
-                  <button onClick={() => setStep("review")}
-                    className="flex-1 py-2 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition">
-                    Review Orders ({draftLegs.length})
-                  </button>
-                </div>
-              </div>
-            )}
+            <div className="w-16 h-16 rounded-full bg-muted/40 flex items-center justify-center mb-4">
+              <Plus className="h-8 w-8 text-muted-foreground/60" />
+            </div>
+            <p className="text-sm text-muted-foreground mb-1 font-medium">Your basket is empty</p>
+            <p className="text-xs text-muted-foreground/60 mb-6 text-center">Use the option chain to add call and put legs to your trade</p>
+            <button onClick={() => setStep("chain")}
+              className="flex items-center gap-2 px-6 py-2.5 text-sm font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 active:scale-95 transition">
+              <Plus className="h-4 w-4" /> Add Orders
+            </button>
           </div>
 
           <div className="px-5 pb-4 text-[10px] text-muted-foreground/60 text-center">
@@ -2229,7 +2195,7 @@ function OptionsChainTradeFlow({
                 className="px-3 py-1.5 text-xs font-semibold border border-border/60 text-muted-foreground hover:text-foreground rounded-lg disabled:opacity-40 transition">
                 Clear
               </button>
-              <button disabled={totalLegs === 0} onClick={() => setStep("basket")}
+              <button disabled={totalLegs === 0} onClick={() => setStep("review")}
                 className="px-5 py-1.5 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-40 active:scale-95 transition">
                 Add ({totalLegs})
               </button>
@@ -2346,6 +2312,10 @@ function OptionsChainTradeFlow({
           </div>
           <div className="flex gap-2 shrink-0">
             <button onClick={() => setStep("chain")}
+              className="px-4 py-2 text-sm font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 transition">
+              <Plus className="h-3.5 w-3.5 inline mr-1" />Add More
+            </button>
+            <button onClick={onClose}
               className="px-5 py-2 text-sm font-semibold border border-border/60 text-muted-foreground hover:text-foreground rounded-lg transition">
               Cancel
             </button>
