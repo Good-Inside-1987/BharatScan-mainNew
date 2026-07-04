@@ -658,7 +658,7 @@ export default function PaperTrading() {
                             ? "bg-purple-500/15 text-purple-400 border border-purple-500/30"
                             : p.instrument_type === "future"
                             ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                            : "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30"
+                            : "bg-primary/15 text-primary border border-primary/30"
                         }`}>
                           {p.instrument_type === "option" ? "Option" : p.instrument_type === "future" ? "Future" : "Stock"}
                         </span>
@@ -773,7 +773,7 @@ export default function PaperTrading() {
                             ? "bg-purple-500/15 text-purple-400 border border-purple-500/30"
                             : t.instrument_type === "future"
                             ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                            : "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30"
+                            : "bg-primary/15 text-primary border border-primary/30"
                         }`}>
                           {t.instrument_type === "option" ? "Option" : t.instrument_type === "future" ? "Future" : "Stock"}
                         </span>
