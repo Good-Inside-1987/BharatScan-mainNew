@@ -381,7 +381,7 @@ export interface ApiPaperAccount {
   updated_at: string;
 }
 
-export type InstrumentType = "stock" | "option";
+export type InstrumentType = "stock" | "option" | "future";
 export type PositionSide = "long" | "short";
 export type OptionType = "CE" | "PE";
 

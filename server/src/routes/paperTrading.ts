@@ -15,7 +15,7 @@ interface PaperAccountRow {
 interface PaperPositionRow {
   id: string;
   account_id: string;
-  instrument_type: "stock" | "option";
+  instrument_type: "stock" | "option" | "future";
   symbol: string;
   underlying: string | null;
   strike: number | null;
@@ -36,7 +36,7 @@ interface PaperTradeRow {
   id: string;
   account_id: string;
   position_id: string | null;
-  instrument_type: "stock" | "option";
+  instrument_type: "stock" | "option" | "future";
   symbol: string;
   underlying: string | null;
   strike: number | null;
@@ -132,7 +132,7 @@ router.post("/accounts/:id/positions", (req: Request, res: Response) => {
     instrument_type, symbol, underlying, strike, option_type, expiry,
     side, qty, lot_size, entry_price, entry_date,
   } = req.body as {
-    instrument_type?: "stock" | "option";
+    instrument_type?: "stock" | "option" | "future";
     symbol?: string;
     underlying?: string;
     strike?: number;
@@ -151,6 +151,10 @@ router.post("/accounts/:id/positions", (req: Request, res: Response) => {
   }
   if (instrument_type === "option" && (!underlying?.trim() || !strike || !option_type || !expiry)) {
     res.status(400).json({ error: "underlying, strike, option_type, expiry are required for options" });
+    return;
+  }
+  if (instrument_type === "future" && (!underlying?.trim() || !expiry)) {
+    res.status(400).json({ error: "underlying and expiry are required for futures" });
     return;
   }
 

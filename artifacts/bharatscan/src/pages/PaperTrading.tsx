@@ -165,7 +165,9 @@ export default function PaperTrading() {
   const [accountId, setAccountId] = useState<string | null>(null);
   const [showNewAccount, setShowNewAccount] = useState(false);
   const [showAddFunds, setShowAddFunds] = useState(false);
-  const [showNewTrade, setShowNewTrade] = useState(false);
+  const [showStockTrade, setShowStockTrade] = useState(false);
+  const [showFuturesTrade, setShowFuturesTrade] = useState(false);
+  const [showOptionsTrade, setShowOptionsTrade] = useState(false);
   const [closingPosition, setClosingPosition] = useState<ApiPaperPosition | null>(null);
   const [tab, setTab] = useState<"positions" | "history">("positions");
   const [tick, setTick] = useState(0); // forces P&L recompute every minute
@@ -213,6 +215,7 @@ export default function PaperTrading() {
 
   function getCurrentLtp(p: ApiPaperPosition): number | null {
     if (p.instrument_type === "stock") return getStockLtp(histories, p.symbol, asOfDate);
+    if (p.instrument_type === "future") return getStockLtp(histories, p.underlying ?? p.symbol, asOfDate);
     if (!optionsData || !p.underlying || !p.expiry || p.strike === null || !p.option_type) return null;
     const bars = optionsData.bars.filter(
       (b) => b.symbol === p.underlying && b.expiry === p.expiry && b.strike === p.strike && b.type === p.option_type
@@ -368,10 +371,22 @@ export default function PaperTrading() {
           {/* Actions */}
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setShowNewTrade(true)}
+              onClick={() => setShowStockTrade(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 active:scale-95 transition"
             >
-              <Plus className="h-3.5 w-3.5" /> New Trade
+              <Plus className="h-3.5 w-3.5" /> Trade in Stocks
+            </button>
+            <button
+              onClick={() => setShowFuturesTrade(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 active:scale-95 transition"
+            >
+              <Plus className="h-3.5 w-3.5" /> Trade in Futures
+            </button>
+            <button
+              onClick={() => setShowOptionsTrade(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 active:scale-95 transition"
+            >
+              <Plus className="h-3.5 w-3.5" /> Trade in Options
             </button>
             <button
               onClick={() => setShowAddFunds(true)}
@@ -437,6 +452,11 @@ export default function PaperTrading() {
                             {p.underlying} {p.strike} {p.option_type} · {fmtDate(p.expiry ?? "")} · lot {p.lot_size}
                           </div>
                         )}
+                        {p.instrument_type === "future" && (
+                          <div className="text-[10px] text-muted-foreground">
+                            {p.underlying} FUT · {fmtDate(p.expiry ?? "")} · lot {p.lot_size}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${p.side === "long" ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"}`}>
@@ -494,6 +514,11 @@ export default function PaperTrading() {
                             {t.underlying} {t.strike} {t.option_type} · {fmtDate(t.expiry ?? "")}
                           </div>
                         )}
+                        {t.instrument_type === "future" && (
+                          <div className="text-[10px] text-muted-foreground">
+                            {t.underlying} FUT · {fmtDate(t.expiry ?? "")}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${t.side === "long" ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"}`}>
@@ -522,9 +547,39 @@ export default function PaperTrading() {
         <AddFundsModal onClose={() => setShowAddFunds(false)} onAdd={(amt) => addFundsMut.mutate(amt)} pending={addFundsMut.isPending} />
       )}
 
-      {showNewTrade && account && (
+      {showStockTrade && account && (
         <NewTradeModal
-          onClose={() => setShowNewTrade(false)}
+          forcedMode="stock"
+          onClose={() => setShowStockTrade(false)}
+          stockSymbols={stockSymbols}
+          underlyingSymbols={underlyingSymbols}
+          optionsData={optionsData}
+          histories={histories}
+          asOfDate={asOfDate}
+          asOfOptionsDate={asOfOptionsDate}
+          cashBalance={account.cash_balance}
+          lotSizes={csvLotSizes}
+          pending={openPositionMut.isPending}
+          onSubmit={(body) => openPositionMut.mutate(body)}
+        />
+      )}
+      {showFuturesTrade && account && (
+        <TradeInFuturesModal
+          onClose={() => setShowFuturesTrade(false)}
+          underlyingSymbols={underlyingSymbols}
+          histories={histories}
+          asOfDate={asOfDate}
+          cashBalance={account.cash_balance}
+          lotSizes={csvLotSizes}
+          optionsData={optionsData}
+          pending={openPositionMut.isPending}
+          onSubmit={(body) => openPositionMut.mutate(body)}
+        />
+      )}
+      {showOptionsTrade && account && (
+        <NewTradeModal
+          forcedMode="options"
+          onClose={() => setShowOptionsTrade(false)}
           stockSymbols={stockSymbols}
           underlyingSymbols={underlyingSymbols}
           optionsData={optionsData}
@@ -656,7 +711,7 @@ function SpinnerInput({ label, sublabel, value, onChange, step = 0.05, min = 0, 
 }
 
 function NewTradeModal({
-  onClose, stockSymbols, underlyingSymbols, optionsData, histories, asOfDate, asOfOptionsDate, cashBalance, lotSizes: csvLotSizes, onSubmit, pending,
+  onClose, stockSymbols, underlyingSymbols, optionsData, histories, asOfDate, asOfOptionsDate, cashBalance, lotSizes: csvLotSizes, onSubmit, pending, forcedMode,
 }: {
   onClose: () => void;
   stockSymbols: string[];
@@ -669,14 +724,15 @@ function NewTradeModal({
   lotSizes: ReturnType<typeof useData>["lotSizes"];
   onSubmit: (body: Parameters<typeof apiOpenPaperPosition>[1]) => void;
   pending: boolean;
+  forcedMode?: "stock" | "options";
 }) {
-  const [instrumentType, setInstrumentType] = useState<InstrumentType>("stock");
+  const [instrumentType, setInstrumentType] = useState<InstrumentType>(forcedMode === "options" ? "option" : "stock");
   const [side, setSide] = useState<PositionSide>("long");
   const [symbol, setSymbol] = useState("");
   const [qty, setQty] = useState("1");
   const [priceTab, setPriceTab] = useState<PriceTab>("market");
   const [validity, setValidity] = useState<OrderValidity>("intraday");
-  const [showOptions, setShowOptions] = useState(false);
+  const [showOptions, setShowOptions] = useState(forcedMode === "options");
 
   const [limitPrice, setLimitPrice] = useState("");
   const [limitPriceTouched, setLimitPriceTouched] = useState(false);
@@ -807,16 +863,21 @@ function NewTradeModal({
         {/* ── Instrument selector row ── */}
         <div className="px-3 pt-2.5 pb-2 border-b border-border/40">
           <div className="flex gap-2 items-center">
-            {/* Stocks / F&O toggle — matches Create Scan style */}
-            <div className="flex rounded-md overflow-hidden border border-border shrink-0">
-              {(["stock", "option"] as const).map((t) => (
-                <button key={t}
-                  onClick={() => { setInstrumentType(t); setSymbol(""); setUnderlying(""); setExpiry(""); setStrike(null); setLimitPriceTouched(false); setShowOptions(false); }}
-                  className={`px-3 py-1 text-xs font-semibold transition-colors ${instrumentType === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground bg-transparent"}`}>
-                  {t === "stock" ? "Stocks" : "F&O"}
-                </button>
-              ))}
-            </div>
+            {forcedMode ? (
+              <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/40 border border-border rounded shrink-0">
+                {forcedMode === "stock" ? "EQUITY" : "F&O"}
+              </div>
+            ) : (
+              <div className="flex rounded-md overflow-hidden border border-border shrink-0">
+                {(["stock", "option"] as const).map((t) => (
+                  <button key={t}
+                    onClick={() => { setInstrumentType(t); setSymbol(""); setUnderlying(""); setExpiry(""); setStrike(null); setLimitPriceTouched(false); setShowOptions(false); }}
+                    className={`px-3 py-1 text-xs font-semibold transition-colors ${instrumentType === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground bg-transparent"}`}>
+                    {t === "stock" ? "Stocks" : "F&O"}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               {instrumentType === "stock" ? (
                 <SymbolPicker symbols={stockSymbols} value={symbol} onChange={(v) => { setSymbol(v); setLimitPriceTouched(false); }} placeholder="Search NSE stock…" />
@@ -1079,6 +1140,368 @@ function NewTradeModal({
               onClick={onClose}
               className="px-4 py-2.5 text-sm font-semibold rounded-lg border border-border/60 text-muted-foreground hover:text-foreground hover:border-border transition"
             >
+              Cancel
+            </button>
+            <button
+              disabled={!canSubmit || pending}
+              onClick={submit}
+              className={`px-7 py-2.5 text-sm font-bold rounded-lg transition disabled:opacity-40 active:scale-95 ${side === "long" ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-red-500 hover:bg-red-600 text-white"}`}
+            >
+              {pending ? "Placing…" : side === "long" ? "Buy" : "Sell"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ─── Trade In Futures Modal ───────────────────────────────────────────────────
+
+function TradeInFuturesModal({
+  onClose, underlyingSymbols, histories, asOfDate, cashBalance, lotSizes: csvLotSizes, optionsData, onSubmit, pending,
+}: {
+  onClose: () => void;
+  underlyingSymbols: string[];
+  histories: ReturnType<typeof useData>["histories"];
+  asOfDate: string | null;
+  cashBalance: number;
+  lotSizes: ReturnType<typeof useData>["lotSizes"];
+  optionsData: ReturnType<typeof useData>["optionsData"];
+  onSubmit: (body: Parameters<typeof apiOpenPaperPosition>[1]) => void;
+  pending: boolean;
+}) {
+  const [side, setSide] = useState<PositionSide>("long");
+  const [underlying, setUnderlying] = useState("");
+  const [expiry, setExpiry] = useState("");
+  const [qty, setQty] = useState("1");
+  const [priceTab, setPriceTab] = useState<PriceTab>("market");
+  const [validity, setValidity] = useState<OrderValidity>("intraday");
+  const [limitPrice, setLimitPrice] = useState("");
+  const [limitPriceTouched, setLimitPriceTouched] = useState(false);
+  const [triggerPrice, setTriggerPrice] = useState("");
+  const [superLimitEnabled, setSuperLimitEnabled] = useState(false);
+  const [superLimitPrice, setSuperLimitPrice] = useState("");
+  const [superTargetEnabled, setSuperTargetEnabled] = useState(false);
+  const [superTarget, setSuperTarget] = useState("");
+  const [superSlEnabled, setSuperSlEnabled] = useState(false);
+  const [superSl, setSuperSl] = useState("");
+  const [trailEnabled, setTrailEnabled] = useState(false);
+  const [trailJump, setTrailJump] = useState("");
+
+  const today = todayIso();
+
+  // Expiries: from optionsData filtered to >= today, or NSE last-Thursday generated dates
+  const allExpiries = useMemo(() => {
+    const fromData = underlying && optionsData
+      ? (optionsData.expiriesBySymbol.get(underlying) ?? []).filter((e) => e >= today)
+      : [];
+    if (fromData.length > 0) return fromData;
+    // Generate NSE-style last-Thursday monthly expiries (3 months ahead)
+    const generated: string[] = [];
+    const now = new Date();
+    for (let m = 0; m < 4; m++) {
+      const rawMonth = now.getMonth() + m;
+      const yr = now.getFullYear() + Math.floor(rawMonth / 12);
+      const mo = rawMonth % 12;
+      const lastDay = new Date(yr, mo + 1, 0);
+      while (lastDay.getDay() !== 4) lastDay.setDate(lastDay.getDate() - 1);
+      const iso = lastDay.toISOString().slice(0, 10);
+      if (iso >= today) generated.push(iso);
+    }
+    return generated;
+  }, [underlying, optionsData, today]);
+
+  // Auto-select nearest expiry when symbol selected
+  useEffect(() => {
+    if (allExpiries.length > 0 && !expiry) setExpiry(allExpiries[0]);
+  }, [allExpiries]);
+
+  // Lot size from csvLotSizes or default map
+  const effLotSize = useMemo(() => {
+    if (!underlying) return 1;
+    return getLotSizeForExpiry(csvLotSizes, underlying, expiry || "9999-12", DEFAULT_LOT_SIZES[underlying]) ?? 1;
+  }, [underlying, expiry, csvLotSizes]);
+
+  // LTP: use underlying stock price as futures price proxy
+  const autoPrice = useMemo(() => {
+    if (!underlying) return null;
+    return getStockLtp(histories, underlying, asOfDate);
+  }, [underlying, histories, asOfDate]);
+
+  useEffect(() => {
+    if (!limitPriceTouched && autoPrice !== null) {
+      setLimitPrice(String(autoPrice));
+      setTriggerPrice(String(parseFloat((autoPrice * 0.995).toFixed(2))));
+      setSuperLimitPrice(String(autoPrice));
+      setSuperTarget(String(parseFloat((autoPrice * 1.05).toFixed(2))));
+      setSuperSl(String(parseFloat((autoPrice * 0.97).toFixed(2))));
+    }
+  }, [autoPrice, limitPriceTouched]);
+
+  const effectivePrice = (() => {
+    if (priceTab === "market") return autoPrice ?? 0;
+    if (priceTab === "limit") return Number(limitPrice) || 0;
+    if (priceTab === "trigger") return Number(limitPrice) || 0;
+    if (priceTab === "super") return superLimitEnabled ? (Number(superLimitPrice) || 0) : (autoPrice ?? 0);
+    return 0;
+  })();
+
+  const notional = (Number(qty) || 0) * effLotSize * effectivePrice;
+  const insufficientFunds = notional > cashBalance && notional > 0;
+
+  const instrumentLabel = underlying && expiry ? `${underlying} ${fmtDate(expiry)} FUT` : underlying || "—";
+  const prevClosePrice = autoPrice !== null ? autoPrice * 0.98 : null;
+  const priceDiff = autoPrice !== null && prevClosePrice !== null ? autoPrice - prevClosePrice : null;
+  const priceDiffPct = autoPrice !== null && prevClosePrice !== null ? (priceDiff! / prevClosePrice) * 100 : null;
+
+  const canSubmit = !!underlying && !!expiry && Number(qty) > 0 && !insufficientFunds &&
+    (priceTab === "market" || Number(effectivePrice) > 0);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { onClose(); return; }
+      if (e.key === "Enter" && !e.shiftKey) {
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+        if (canSubmit && !pending) submit();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [canSubmit, pending, onClose]);
+
+  function submit() {
+    const entryPrice = priceTab === "market" ? (autoPrice ?? effectivePrice) : effectivePrice;
+    onSubmit({
+      instrument_type: "future" as InstrumentType,
+      symbol: `${underlying} ${fmtDate(expiry)} FUT`,
+      underlying,
+      expiry,
+      side,
+      qty: Number(qty),
+      lot_size: effLotSize,
+      entry_price: entryPrice,
+      entry_date: todayIso(),
+    });
+  }
+
+  const PRICE_TABS: { id: PriceTab; label: string; beta?: boolean }[] = [
+    { id: "market", label: "Market" },
+    { id: "limit", label: "Limit" },
+    { id: "trigger", label: "Trigger" },
+    { id: "super", label: "Super", beta: true },
+  ];
+
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+      <div className="bg-[#1a1f2e] border border-border/60 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+
+        {/* ── Header: FUTURES badge + symbol + EXPIRY + dropdown ── */}
+        <div className="px-3 pt-2.5 pb-2 border-b border-border/40">
+          <div className="flex gap-2 items-center">
+            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/40 border border-border rounded shrink-0">
+              FUTURES
+            </div>
+            <div className="flex-1 min-w-0">
+              <SymbolPicker
+                symbols={underlyingSymbols}
+                value={underlying}
+                onChange={(v) => { setUnderlying(v); setExpiry(""); setLimitPriceTouched(false); }}
+                placeholder="Search futures symbol…"
+              />
+            </div>
+            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/40 border border-border rounded shrink-0">
+              EXPIRY
+            </div>
+            <select
+              value={expiry}
+              onChange={(e) => { setExpiry(e.target.value); setLimitPriceTouched(false); }}
+              disabled={!underlying}
+              className="bg-background border border-border rounded-lg px-2 py-1 text-xs text-foreground focus:outline-none shrink-0 disabled:opacity-50"
+            >
+              <option value="">{underlying ? (allExpiries.length ? "Select" : "No expiries") : "—"}</option>
+              {allExpiries.map((e) => <option key={e} value={e}>{fmtDate(e)}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* ── Title + LTP ── */}
+        <div className="px-4 pt-3 flex items-start justify-between">
+          <div>
+            <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">{instrumentLabel}</div>
+            {autoPrice !== null ? (
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-foreground">{autoPrice.toFixed(2)}</span>
+                {priceDiff !== null && (
+                  <span className="text-xs font-semibold text-emerald-400">
+                    +{priceDiff.toFixed(2)} (+{priceDiffPct!.toFixed(2)}%) ↗
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground italic">{underlying ? "No price data — use Limit tab" : "Select a symbol to begin"}</div>
+            )}
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors mt-0.5">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* ── Trading / Normal + Buy●Sell ── */}
+        <div className="px-4 pt-2.5 pb-0 flex items-center justify-between">
+          <div className="flex gap-1.5">
+            {(["intraday", "normal"] as const).map((v) => (
+              <button key={v} onClick={() => setValidity(v)}
+                className={`px-3 py-1 text-xs font-semibold rounded border transition ${validity === v ? "border-primary/60 bg-primary/10 text-primary" : "border-border/50 text-muted-foreground hover:border-border"}`}>
+                {v === "intraday" ? "Trading" : "Normal"}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setSide(side === "long" ? "short" : "long")}
+            className="flex items-center gap-1.5 text-xs font-semibold" aria-label="Toggle Buy/Sell">
+            <span className={side === "long" ? "text-foreground" : "text-muted-foreground"}>Buy</span>
+            <div className={`relative w-9 h-5 rounded-full transition-colors ${side === "long" ? "bg-primary" : "bg-red-500"}`}>
+              <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${side === "long" ? "left-0.5" : "left-[18px]"}`} />
+            </div>
+            <span className={side === "short" ? "text-foreground" : "text-muted-foreground"}>Sell</span>
+          </button>
+        </div>
+
+        {/* ── Price tabs ── */}
+        <div className="px-4 pt-2 flex items-end gap-0 border-b border-border/40">
+          {PRICE_TABS.map((pt) => (
+            <button key={pt.id} onClick={() => setPriceTab(pt.id)}
+              className={`px-3 py-2 text-xs font-semibold border-b-2 transition -mb-px flex items-center gap-1 ${priceTab === pt.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+              {pt.label}
+              {pt.beta && <span className="text-[8px] font-bold bg-amber-500/20 text-amber-400 rounded px-1 py-0.5 leading-none">beta</span>}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Order body ── */}
+        <div className="px-4 py-3 space-y-3">
+          {priceTab === "market" && (
+            <div className="flex gap-2">
+              <div className="w-[106px] shrink-0">
+                <div className="h-4 flex items-center gap-1.5 mb-1">
+                  <span className="text-[10px] font-semibold text-muted-foreground">Lot ×</span>
+                  <span className="text-[10px] text-muted-foreground/50">Qty: {Number(qty) * effLotSize}</span>
+                </div>
+                <SpinnerInput label="" value={qty} onChange={setQty} step={1} min={1} />
+              </div>
+              <div className="flex-1">
+                <div className="h-4 flex items-center mb-1">
+                  <span className="text-[10px] font-semibold text-muted-foreground">Market Price</span>
+                </div>
+                <div className="border border-border/50 rounded-lg flex items-center gap-1.5 px-2 opacity-60" style={{height: "calc(1rem + 14px)"}}>
+                  <span className="text-sm font-semibold text-foreground">Market</span>
+                  <span className="text-muted-foreground text-xs">🔒</span>
+                </div>
+              </div>
+            </div>
+          )}
+          {priceTab === "limit" && (
+            <div className="flex gap-2">
+              <div className="w-[106px] shrink-0">
+                <div className="h-4 flex items-center gap-1.5 mb-1">
+                  <span className="text-[10px] font-semibold text-muted-foreground">Lot ×</span>
+                  <span className="text-[10px] text-muted-foreground/50">Qty: {Number(qty) * effLotSize}</span>
+                </div>
+                <SpinnerInput label="" value={qty} onChange={setQty} step={1} min={1} />
+              </div>
+              <div className="flex-1">
+                <div className="h-4 flex items-center mb-1">
+                  <span className="text-[10px] font-semibold text-muted-foreground">Limit Price</span>
+                </div>
+                <SpinnerInput label="" value={limitPrice} onChange={(v) => { setLimitPrice(v); setLimitPriceTouched(true); }} step={0.05} min={0} />
+              </div>
+            </div>
+          )}
+          {priceTab === "trigger" && (
+            <div className="flex gap-2">
+              <div className="w-[106px] shrink-0">
+                <div className="h-4 flex items-center gap-1.5 mb-1">
+                  <span className="text-[10px] font-semibold text-muted-foreground">Lot ×</span>
+                  <span className="text-[10px] text-muted-foreground/50">Qty: {Number(qty) * effLotSize}</span>
+                </div>
+                <SpinnerInput label="" value={qty} onChange={setQty} step={1} min={1} />
+              </div>
+              <div className="flex-1">
+                <div className="h-4 flex items-center mb-1">
+                  <span className="text-[10px] font-semibold text-muted-foreground">Limit Price</span>
+                </div>
+                <SpinnerInput label="" value={limitPrice} onChange={(v) => { setLimitPrice(v); setLimitPriceTouched(true); }} step={0.05} min={0} />
+              </div>
+              <div className="flex-1">
+                <div className="h-4 flex items-center mb-1">
+                  <span className="text-[10px] font-semibold text-muted-foreground">Trigger Price</span>
+                </div>
+                <SpinnerInput label="" value={triggerPrice} onChange={setTriggerPrice} step={0.05} min={0} />
+              </div>
+            </div>
+          )}
+          {priceTab === "super" && (
+            <div className="flex gap-2">
+              <div className="w-[106px] shrink-0">
+                <div className="h-4 flex items-center gap-1.5 mb-1">
+                  <span className="text-[10px] font-semibold text-muted-foreground">Lot ×</span>
+                  <span className="text-[10px] text-muted-foreground/50">Qty: {Number(qty) * effLotSize}</span>
+                </div>
+                <SpinnerInput label="" value={qty} onChange={setQty} step={1} min={1} />
+              </div>
+              <div className="flex-1">
+                <div className="h-4 flex items-center gap-1 mb-1">
+                  <input type="checkbox" id="fut-sl-limit" checked={superLimitEnabled} onChange={(e) => setSuperLimitEnabled(e.target.checked)} className="accent-primary w-3 h-3" />
+                  <label htmlFor="fut-sl-limit" className="text-[10px] text-muted-foreground font-semibold">Limit Price</label>
+                </div>
+                <SpinnerInput label="" value={superLimitPrice} onChange={setSuperLimitPrice} step={0.05} min={0} disabled={!superLimitEnabled} />
+              </div>
+              <div className="flex-1">
+                <div className="h-4 flex items-center gap-1 mb-1">
+                  <input type="checkbox" id="fut-sl-target" checked={superTargetEnabled} onChange={(e) => setSuperTargetEnabled(e.target.checked)} className="accent-emerald-500 w-3 h-3" />
+                  <label htmlFor="fut-sl-target" className="text-[10px] text-emerald-400 font-semibold">Target</label>
+                </div>
+                <SpinnerInput label="" value={superTarget} onChange={setSuperTarget} step={0.05} min={0} disabled={!superTargetEnabled} />
+              </div>
+              <div className="flex-1">
+                <div className="h-4 flex items-center gap-1 mb-1">
+                  <input type="checkbox" id="fut-sl-loss" checked={superSlEnabled} onChange={(e) => setSuperSlEnabled(e.target.checked)} className="accent-red-500 w-3 h-3" />
+                  <label htmlFor="fut-sl-loss" className="text-[10px] text-red-400 font-semibold">Stop Loss</label>
+                </div>
+                <SpinnerInput label="" value={superSl} onChange={setSuperSl} step={0.05} min={0} disabled={!superSlEnabled} />
+              </div>
+              <div className="flex-1">
+                <div className="h-4 flex items-center gap-1 mb-1">
+                  <input type="checkbox" id="fut-sl-trail" checked={trailEnabled} onChange={(e) => setTrailEnabled(e.target.checked)} className="accent-amber-400 w-3 h-3" />
+                  <label htmlFor="fut-sl-trail" className="text-[10px] text-amber-400 font-semibold">Trail Jump</label>
+                </div>
+                <SpinnerInput label="" value={trailJump || "0"} onChange={setTrailJump} step={0.05} min={0} disabled={!trailEnabled} />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Footer ── */}
+        <div className="px-4 py-3 border-t border-border/40 bg-muted/10 flex items-center justify-between gap-3">
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            <div>
+              Margin: <span className={`font-bold ${insufficientFunds ? "text-red-500" : "text-foreground"}`}>
+                {notional > 0 ? `₹${notional.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}
+              </span>
+              {notional > 0 && <span className="text-muted-foreground/60 ml-1">(1X)</span>}
+            </div>
+            <div>
+              Available: <span className={`font-semibold ${insufficientFunds ? "text-red-400" : "text-foreground"}`}>
+                ₹{cashBalance.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            {insufficientFunds && <div className="text-[10px] text-red-500">Insufficient balance</div>}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button type="button" onClick={onClose}
+              className="px-4 py-2.5 text-sm font-semibold rounded-lg border border-border/60 text-muted-foreground hover:text-foreground hover:border-border transition">
               Cancel
             </button>
             <button
