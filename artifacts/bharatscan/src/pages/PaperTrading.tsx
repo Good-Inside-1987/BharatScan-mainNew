@@ -67,6 +67,7 @@ interface DraftLeg {
   lots: number;
   lotSize: number;
   entryPrice: number;
+  time: string; // "HH:MM AM/PM" when leg was added
 }
 
 function optDelta(spot: number, strike: number, type: "CE" | "PE", dte: number): number {
@@ -1830,6 +1831,10 @@ function OptionsChainTradeFlow({
     ));
   }
 
+  function nowTime(): string {
+    return new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+  }
+
   function toggleLeg(strike: number, type: "CE" | "PE", action: "BUY" | "SELL", price: number) {
     if (price <= 0) return;
     const exists = draftLegs.find((l) =>
@@ -1842,9 +1847,23 @@ function OptionsChainTradeFlow({
       const lots = getRowLots(strike, type);
       setDraftLegs((prev) => [
         ...prev.filter((l) => !(l.underlying === activeSymbol && l.expiry === activeExpiry && l.strike === strike && l.type === type)),
-        { id: crypto.randomUUID(), underlying: activeSymbol, expiry: activeExpiry, strike, type, action, lots, lotSize, entryPrice: price },
+        { id: crypto.randomUUID(), underlying: activeSymbol, expiry: activeExpiry, strike, type, action, lots, lotSize, entryPrice: price, time: nowTime() },
       ]);
     }
+  }
+
+  function refreshLegPrice(legId: string) {
+    setDraftLegs((prev) => prev.map((l) => {
+      if (l.id !== legId || !optionsData) return l;
+      let latestPrice = 0;
+      for (const b of optionsData.bars) {
+        if (b.symbol === l.underlying && b.expiry === l.expiry && b.strike === l.strike && b.type === l.type) {
+          if (!latestPrice || b.date > liveDate) latestPrice = b.close;
+          if (b.date === liveDate) { latestPrice = b.close; break; }
+        }
+      }
+      return latestPrice > 0 ? { ...l, entryPrice: latestPrice, time: nowTime() } : l;
+    }));
   }
 
   function stepExpiry(dir: "left" | "right") {
@@ -1861,6 +1880,7 @@ function OptionsChainTradeFlow({
     const strikes = chain.map((r) => r.strike).sort((a, b) => a - b);
     const atmIdx = strikes.indexOf(atmK);
     if (atmIdx < 0) return;
+    const t = nowTime();
     const newLegs: DraftLeg[] = [];
     for (const def of strat.legs) {
       const idx = atmIdx + def.offset;
@@ -1874,7 +1894,7 @@ function OptionsChainTradeFlow({
         id: crypto.randomUUID(),
         underlying: activeSymbol, expiry: activeExpiry,
         strike, type: def.type, action: def.action,
-        lots: 1, lotSize, entryPrice: price,
+        lots: 1, lotSize, entryPrice: price, time: t,
       });
     }
     if (newLegs.length) setDraftLegs(newLegs);
@@ -2227,43 +2247,81 @@ function OptionsChainTradeFlow({
 
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-          <div>
-            <h2 className="text-sm font-semibold text-foreground">Review Orders</h2>
-            <p className="text-[10px] text-primary font-medium mt-0.5">{draftLegs.length} leg{draftLegs.length !== 1 ? "s" : ""} — Paper Trade</p>
-          </div>
+      <div className="bg-card border-2 border-primary/30 border-dashed rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
+
+        {/* Drafts Mode banner */}
+        <div className="text-center py-1 border-b border-primary/20 bg-primary/5">
+          <span className="text-[10px] font-bold text-primary tracking-widest uppercase">Drafts Mode</span>
+        </div>
+
+        {/* Title row */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <h2 className="text-sm font-semibold text-foreground">Review New Draft Trade Orders</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors"><X className="h-4 w-4" /></button>
         </div>
 
         {/* Column headers */}
-        <div className="grid grid-cols-[60px_1fr_64px_80px_36px] text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-4 py-2 border-b border-border bg-muted/20">
-          <div>Action</div>
+        <div className="grid items-center text-[11px] font-medium text-muted-foreground border-b border-border bg-muted/10 px-4 py-2"
+          style={{ gridTemplateColumns: "80px 1fr 60px 110px 90px 36px" }}>
+          <div>Type</div>
           <div>Instrument</div>
           <div className="text-right">Qty</div>
-          <div className="text-right">Price</div>
+          <div className="text-right pr-6">Price</div>
+          <div>Time</div>
           <div />
         </div>
 
         {/* Leg rows */}
-        <div className="max-h-[40vh] overflow-y-auto">
+        <div className="max-h-[45vh] overflow-y-auto divide-y divide-border/50">
           {draftLegs.map((leg) => (
-            <div key={leg.id} className="grid grid-cols-[60px_1fr_64px_80px_36px] items-center px-4 py-2.5 border-b border-border/50 text-xs hover:bg-muted/20 transition">
+            <div key={leg.id}
+              className="grid items-center px-4 py-2.5 hover:bg-muted/20 transition"
+              style={{ gridTemplateColumns: "80px 1fr 60px 110px 90px 36px" }}>
+
+              {/* Type: Buy/Sell badge */}
               <div>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${leg.action === "BUY" ? "bg-blue-500/15 text-blue-400 border border-blue-500/30" : "bg-red-500/15 text-red-400 border border-red-500/30"}`}>
+                <span className={`inline-flex items-center px-2.5 py-1 rounded text-[11px] font-bold ${
+                  leg.action === "BUY"
+                    ? "bg-blue-600 text-white"
+                    : "bg-red-600 text-white"
+                }`}>
                   {leg.action === "BUY" ? "Buy" : "Sell"}
                 </span>
               </div>
-              <div className="font-medium text-foreground truncate pr-2 text-[11px]">
+
+              {/* Instrument */}
+              <div className="font-medium text-foreground text-[12px] truncate pr-3">
                 {leg.underlying} {fmtDate(leg.expiry)} {leg.strike} {leg.type}
               </div>
-              <div className="text-right tabular-nums text-foreground font-semibold">{leg.lots * leg.lotSize}</div>
-              <div className="text-right tabular-nums text-foreground">₹{leg.entryPrice.toFixed(2)}</div>
+
+              {/* Qty (shares) */}
+              <div className="text-right tabular-nums text-foreground text-[12px] font-semibold">
+                {leg.lots * leg.lotSize}
+              </div>
+
+              {/* Price + refresh */}
+              <div className="flex items-center justify-end gap-1 pr-1">
+                <span className="tabular-nums text-foreground text-[12px]">
+                  {leg.entryPrice.toFixed(2)}
+                </span>
+                <button
+                  onClick={() => refreshLegPrice(leg.id)}
+                  title="Refresh price from latest data"
+                  className="text-primary hover:text-primary/70 transition-colors p-0.5 rounded">
+                  <RefreshCw className="h-3 w-3" />
+                </button>
+              </div>
+
+              {/* Time */}
+              <div className="text-[11px] text-muted-foreground tabular-nums">
+                {leg.time || "—"}
+              </div>
+
+              {/* Delete */}
               <div className="flex justify-end">
                 <button onClick={() => setDraftLegs((p) => p.filter((l) => l.id !== leg.id))}
                   className="text-muted-foreground hover:text-red-400 transition-colors p-1">
-                  <X className="h-3.5 w-3.5" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
@@ -2271,33 +2329,31 @@ function OptionsChainTradeFlow({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3.5 border-t border-border bg-muted/10">
-          <div className="flex items-center justify-between mb-3 text-xs">
-            <div className="space-y-0.5">
-              <div className="text-muted-foreground">
-                Total margin: <span className={`font-semibold ${insufficient ? "text-red-400" : "text-foreground"}`}>
-                  ₹{totalMargin.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span className="text-muted-foreground/60 ml-1">(1×)</span>
-              </div>
-              <div className="text-muted-foreground">
-                Available: <span className={`font-semibold ${insufficient ? "text-red-400" : "text-foreground"}`}>
-                  ₹{cashBalance.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-              {insufficient && <div className="text-[10px] text-red-500 font-medium">Insufficient balance</div>}
+        <div className="px-4 py-3 border-t border-border bg-muted/10 flex items-center justify-between gap-4">
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            <div>
+              Margin: <span className={`font-semibold ${insufficient ? "text-red-400" : "text-foreground"}`}>
+                ₹{totalMargin.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span className="text-muted-foreground/60 ml-1">(1×)</span>
             </div>
+            <div>
+              Available: <span className={`font-semibold ${insufficient ? "text-red-400" : "text-foreground"}`}>
+                ₹{cashBalance.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            {insufficient && <div className="text-[10px] text-red-500 font-medium">Insufficient balance</div>}
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <button onClick={() => setStep("chain")}
-              className="px-4 py-2 text-xs font-semibold border border-border/60 text-muted-foreground hover:text-foreground rounded-lg transition">
-              ← Back
+              className="px-5 py-2 text-sm font-semibold border border-border/60 text-muted-foreground hover:text-foreground rounded-lg transition">
+              Cancel
             </button>
             <button
               disabled={draftLegs.length === 0 || insufficient || submitting}
               onClick={() => onConfirm(draftLegs)}
-              className="flex-1 py-2 text-xs font-bold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-40 active:scale-95 transition">
-              {submitting ? "Placing…" : `Confirm & Place (${draftLegs.length} leg${draftLegs.length !== 1 ? "s" : ""})`}
+              className="px-6 py-2 text-sm font-bold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-40 active:scale-95 transition">
+              {submitting ? "Placing…" : `Add (${draftLegs.length})`}
             </button>
           </div>
         </div>
