@@ -595,14 +595,14 @@ export default function PaperTrading() {
             {tab === "positions" && (
               <div className="ml-auto flex items-center gap-1.5 mr-1">
                 {([
-                  { key: "all", label: "All", count: positionsWithPnl.length },
-                  { key: "stock", label: "Stocks", count: positionsWithPnl.filter(p => p.instrument_type === "stock").length },
-                  { key: "future", label: "Futures", count: positionsWithPnl.filter(p => p.instrument_type === "future").length },
-                  { key: "option", label: "Options", count: positionsWithPnl.filter(p => p.instrument_type === "option").length },
-                ] as const).map(({ key, label, count }) => (
+                  { key: "all", label: "All", count: positionsWithPnl.length, activeCls: "bg-primary text-primary-foreground", countCls: "text-primary-foreground/80" },
+                  { key: "stock", label: "Stocks", count: positionsWithPnl.filter(p => p.instrument_type === "stock").length, activeCls: "bg-primary text-primary-foreground", countCls: "text-primary-foreground/80" },
+                  { key: "future", label: "Futures", count: positionsWithPnl.filter(p => p.instrument_type === "future").length, activeCls: "bg-amber-500 text-black", countCls: "text-black/70" },
+                  { key: "option", label: "Options", count: positionsWithPnl.filter(p => p.instrument_type === "option").length, activeCls: "bg-purple-500 text-white", countCls: "text-white/80" },
+                ] as const).map(({ key, label, count, activeCls, countCls }) => (
                   <button key={key} onClick={() => setPositionFilter(key)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition ${positionFilter === key ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"}`}>
-                    {label} <span className={`text-[10px] font-bold ${positionFilter === key ? "text-primary-foreground/80" : "text-muted-foreground/60"}`}>{count}</span>
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition ${positionFilter === key ? activeCls : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"}`}>
+                    {label} <span className={`text-[10px] font-bold ${positionFilter === key ? countCls : "text-muted-foreground/60"}`}>{count}</span>
                   </button>
                 ))}
                 {positionsWithPnl.length > 0 && (
