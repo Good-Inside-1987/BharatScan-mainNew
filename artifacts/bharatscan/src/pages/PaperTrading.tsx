@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Wallet, TrendingUp, TrendingDown, Plus, X, RefreshCw, History,
   ArrowUpRight, ArrowDownRight, Trash2, Settings2, Radio, Target, AlertTriangle, XCircle,
-  ChevronLeft, ChevronRight, ShoppingCart,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useData } from "@/context/DataContext";
@@ -1722,7 +1722,7 @@ function OptionsChainTradeFlow({
   onConfirm: (legs: DraftLeg[]) => void;
   submitting: boolean;
 }) {
-  const [step, setStep] = useState<"basket" | "chain" | "review">("basket");
+  const [step, setStep] = useState<"chain" | "review">("chain");
   const [draftLegs, setDraftLegs] = useState<DraftLeg[]>([]);
 
   // Chain state
@@ -1908,42 +1908,7 @@ function OptionsChainTradeFlow({
 
   const totalLegs = draftLegs.length;
 
-  // ── Screen 1: Basket ──────────────────────────────────────────────────────
-  if (step === "basket") {
-    return createPortal(
-      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-        <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <ShoppingCart className="h-4 w-4 text-primary" /> Trade in Options
-            </h2>
-            <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="px-5 py-8 flex flex-col items-center justify-center min-h-[220px]">
-            <div className="w-16 h-16 rounded-full bg-muted/40 flex items-center justify-center mb-4">
-              <Plus className="h-8 w-8 text-muted-foreground/60" />
-            </div>
-            <p className="text-sm text-muted-foreground mb-1 font-medium">Your basket is empty</p>
-            <p className="text-xs text-muted-foreground/60 mb-6 text-center">Use the option chain to add call and put legs to your trade</p>
-            <button onClick={() => setStep("chain")}
-              className="flex items-center gap-2 px-6 py-2.5 text-sm font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 active:scale-95 transition">
-              <Plus className="h-4 w-4" /> Add Orders
-            </button>
-          </div>
-
-          <div className="px-5 pb-4 text-[10px] text-muted-foreground/60 text-center">
-            Available: ₹{cashBalance.toLocaleString("en-IN", { minimumFractionDigits: 0 })}
-          </div>
-        </div>
-      </div>,
-      document.body
-    );
-  }
-
-  // ── Screen 2: Live option chain ──────────────────────────────────────────
+  // ── Screen 1: Live option chain ──────────────────────────────────────────
   if (step === "chain") {
     return createPortal(
       <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -1952,9 +1917,6 @@ function OptionsChainTradeFlow({
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 shrink-0">
             <div className="flex items-center gap-2">
-              <button onClick={() => setStep("basket")} className="text-muted-foreground hover:text-foreground transition-colors">
-                <ChevronLeft className="h-4 w-4" />
-              </button>
               <select value={activeSymbol} onChange={(e) => { setActiveSymbol(e.target.value); setSelectedExpiry(""); }}
                 className="text-xs font-bold bg-transparent border border-border/60 rounded px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 max-w-[150px]">
                 {symbols.filter((s) => CHAIN_INDEX_ORDER.includes(s)).length > 0 && (
