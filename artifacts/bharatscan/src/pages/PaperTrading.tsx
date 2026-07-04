@@ -582,6 +582,7 @@ export default function PaperTrading() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border bg-muted/40 text-muted-foreground uppercase tracking-wide">
+                    <th className="text-left px-3 py-2 text-[9px] font-semibold w-[80px]">Type</th>
                     <th className="text-left px-3 py-2 text-[9px] font-semibold">Instrument</th>
                     <th className="text-left px-3 py-2 text-[9px] font-semibold">Side</th>
                     <th className="text-right px-3 py-2 text-[9px] font-semibold">Qty</th>
@@ -595,25 +596,25 @@ export default function PaperTrading() {
                 </thead>
                 <tbody>
                   {filteredPositions.length === 0 && (
-                    <tr><td colSpan={9} className="text-center py-6 text-xs text-muted-foreground">
+                    <tr><td colSpan={10} className="text-center py-6 text-xs text-muted-foreground">
                       {positionsWithPnl.length === 0 ? "No open positions. Place a new trade to get started." : `No ${positionFilter} positions.`}
                     </td></tr>
                   )}
                   {filteredPositions.map((p) => (
                     <tr key={p.id} className="border-b border-border/50 hover:bg-muted/20">
+                      <td className="px-3 py-2 align-top">
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${
+                          p.instrument_type === "option"
+                            ? "bg-purple-500/15 text-purple-400 border border-purple-500/30"
+                            : p.instrument_type === "future"
+                            ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                            : "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30"
+                        }`}>
+                          {p.instrument_type === "option" ? "Option" : p.instrument_type === "future" ? "Future" : "Stock"}
+                        </span>
+                      </td>
                       <td className="px-3 py-2">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${
-                            p.instrument_type === "option"
-                              ? "bg-purple-500/15 text-purple-400 border border-purple-500/30"
-                              : p.instrument_type === "future"
-                              ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                              : "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30"
-                          }`}>
-                            {p.instrument_type === "option" ? "Option" : p.instrument_type === "future" ? "Future" : "Stock"}
-                          </span>
-                          <div className="text-xs font-semibold text-foreground">{p.symbol}</div>
-                        </div>
+                        <div className="text-xs font-semibold text-foreground">{p.symbol}</div>
                         {p.instrument_type === "option" && (
                           <div className="text-[10px] text-muted-foreground">
                             {p.underlying} {p.strike} {p.option_type} · {fmtDate(p.expiry ?? "")} · lot {p.lot_size}
