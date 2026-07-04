@@ -1194,7 +1194,8 @@ function TradeInFuturesModal({
 
   // Expiries: from optionsData filtered to >= today, or NSE last-Thursday generated dates
   const allExpiries = useMemo(() => {
-    const fromData = underlying && optionsData
+    if (!underlying) return [];
+    const fromData = optionsData
       ? (optionsData.expiriesBySymbol.get(underlying) ?? []).filter((e) => e >= today)
       : [];
     if (fromData.length > 0) return fromData;
@@ -1318,10 +1319,11 @@ function TradeInFuturesModal({
             <select
               value={expiry}
               onChange={(e) => { setExpiry(e.target.value); setLimitPriceTouched(false); }}
-              disabled={!underlying}
+              disabled={!underlying || allExpiries.length === 0}
               className="bg-background border border-border rounded-lg px-2 py-1 text-xs text-foreground focus:outline-none shrink-0 disabled:opacity-50"
             >
-              <option value="">{underlying ? (allExpiries.length ? "Select" : "No expiries") : "—"}</option>
+              {!underlying && <option value="">—</option>}
+              {underlying && allExpiries.length === 0 && <option value="">No expiries</option>}
               {allExpiries.map((e) => <option key={e} value={e}>{fmtDate(e)}</option>)}
             </select>
           </div>
