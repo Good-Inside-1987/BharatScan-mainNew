@@ -18,6 +18,10 @@ import {
 } from "@/lib/api";
 import { toast } from "sonner";
 import { ALL_NSE_STOCKS, ALL_FUTURES_SYMBOLS } from "@/lib/nseSymbols";
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip as ChartTooltip,
+  ResponsiveContainer, ReferenceLine, CartesianGrid,
+} from "recharts";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -170,6 +174,7 @@ export default function PaperTrading() {
   const [showOptionsTrade, setShowOptionsTrade] = useState(false);
   const [closingPosition, setClosingPosition] = useState<ApiPaperPosition | null>(null);
   const [closingAll, setClosingAll] = useState(false);
+  const [positionFilter, setPositionFilter] = useState<"all" | "stock" | "future" | "option">("all");
   const [tab, setTab] = useState<"positions" | "history">("positions");
   const [tick, setTick] = useState(0); // forces P&L recompute every minute
 
@@ -266,6 +271,23 @@ export default function PaperTrading() {
     });
   }, [positions, histories, optionsData, asOfDate, asOfOptionsDate, tick]);
 
+  const filteredPositions = useMemo(() => {
+    if (positionFilter === "all") return positionsWithPnl;
+    return positionsWithPnl.filter((p) => p.instrument_type === positionFilter);
+  }, [positionsWithPnl, positionFilter]);
+
+  const pnlChartData = useMemo(() => {
+    if (trades.length === 0) return [];
+    const sorted = [...trades].sort((a, b) => a.exit_date.localeCompare(b.exit_date));
+    const byDate = new Map<string, number>();
+    for (const t of sorted) byDate.set(t.exit_date, (byDate.get(t.exit_date) ?? 0) + t.realized_pnl);
+    let cumulative = 0;
+    return Array.from(byDate.entries()).map(([date, daily]) => {
+      cumulative += daily;
+      return { date: fmtDate(date), daily, cumulative };
+    });
+  }, [trades]);
+
   const unrealizedPnl = positionsWithPnl.reduce((s, p) => s + (p.pnl ?? 0), 0);
   const totalEquity = (account?.cash_balance ?? 0) + (account?.invested ?? 0) + unrealizedPnl;
   const returnPct = account && account.starting_balance > 0
@@ -319,7 +341,9 @@ export default function PaperTrading() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["paper-accounts"] });
       qc.invalidateQueries({ queryKey: ["paper-positions", accountId] });
-      setShowNewTrade(false);
+      setShowStockTrade(false);
+      setShowFuturesTrade(false);
+      setShowOptionsTrade(false);
       toast.success("Order executed");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -443,18 +467,26 @@ export default function PaperTrading() {
                 {t === "positions" ? `Open Positions (${positions.length})` : `Trade History (${trades.length})`}
               </button>
             ))}
-            {tab === "positions" && positionsWithPnl.length > 0 && (
-              <button
-                onClick={handleCloseAll}
-                disabled={closingAll}
-                className="ml-auto mr-1 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold border border-red-500/50 text-red-500 rounded-lg hover:bg-red-500/10 active:scale-95 transition disabled:opacity-50"
-              >
-                {closingAll ? (
-                  <><RefreshCw className="h-3 w-3 animate-spin" /> Closing…</>
-                ) : (
-                  <><XCircle className="h-3 w-3" /> Close All Positions</>
+            {tab === "positions" && (
+              <div className="ml-auto flex items-center gap-1.5 mr-1">
+                {([
+                  { key: "all", label: "All", count: positionsWithPnl.length },
+                  { key: "stock", label: "Stocks", count: positionsWithPnl.filter(p => p.instrument_type === "stock").length },
+                  { key: "future", label: "Futures", count: positionsWithPnl.filter(p => p.instrument_type === "future").length },
+                  { key: "option", label: "Options", count: positionsWithPnl.filter(p => p.instrument_type === "option").length },
+                ] as const).map(({ key, label, count }) => (
+                  <button key={key} onClick={() => setPositionFilter(key)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition ${positionFilter === key ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70"}`}>
+                    {label} <span className={`text-[10px] font-bold ${positionFilter === key ? "text-primary-foreground/80" : "text-muted-foreground/60"}`}>{count}</span>
+                  </button>
+                ))}
+                {positionsWithPnl.length > 0 && (
+                  <button onClick={handleCloseAll} disabled={closingAll}
+                    className="ml-1 flex items-center gap-1.5 px-3 py-1 text-[11px] font-semibold border border-red-500/50 text-red-500 rounded-lg hover:bg-red-500/10 active:scale-95 transition disabled:opacity-50">
+                    {closingAll ? <><RefreshCw className="h-3 w-3 animate-spin" /> Closing…</> : <><XCircle className="h-3 w-3" /> Close All</>}
+                  </button>
                 )}
-              </button>
+              </div>
             )}
           </div>
 
@@ -475,10 +507,12 @@ export default function PaperTrading() {
                   </tr>
                 </thead>
                 <tbody>
-                  {positionsWithPnl.length === 0 && (
-                    <tr><td colSpan={9} className="text-center py-6 text-xs text-muted-foreground">No open positions. Place a new trade to get started.</td></tr>
+                  {filteredPositions.length === 0 && (
+                    <tr><td colSpan={9} className="text-center py-6 text-xs text-muted-foreground">
+                      {positionsWithPnl.length === 0 ? "No open positions. Place a new trade to get started." : `No ${positionFilter} positions.`}
+                    </td></tr>
                   )}
-                  {positionsWithPnl.map((p) => (
+                  {filteredPositions.map((p) => (
                     <tr key={p.id} className="border-b border-border/50 hover:bg-muted/20">
                       <td className="px-3 py-2">
                         <div className="text-xs font-semibold text-foreground">{p.symbol}</div>
@@ -523,6 +557,41 @@ export default function PaperTrading() {
               </table>
             </Card>
           ) : (
+            <>
+            {pnlChartData.length > 0 && (() => {
+              const lastPnl = pnlChartData[pnlChartData.length - 1].cumulative;
+              const isPos = lastPnl >= 0;
+              const color = isPos ? "#10b981" : "#ef4444";
+              return (
+                <Card className="p-4 mb-2">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cumulative Realized P&L</span>
+                    <span className={`text-sm font-bold ${isPos ? "text-emerald-400" : "text-red-400"}`}>{fmtPnl(lastPnl)}</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={130}>
+                    <AreaChart data={pnlChartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="cumPnlGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={color} stopOpacity={0.25} />
+                          <stop offset="95%" stopColor={color} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <XAxis dataKey="date" tick={{ fontSize: 9, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 9, fill: "#6b7280" }} axisLine={false} tickLine={false}
+                        tickFormatter={(v) => v >= 1000 || v <= -1000 ? `₹${(v / 1000).toFixed(0)}k` : `₹${v}`} width={52} />
+                      <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" strokeDasharray="3 3" />
+                      <ChartTooltip
+                        contentStyle={{ background: "#1a1f2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 11 }}
+                        formatter={(v: number, name: string) => [fmtPnl(v), name === "cumulative" ? "Cumulative P&L" : "Daily P&L"]}
+                        labelStyle={{ color: "#9ca3af", marginBottom: 4 }}
+                      />
+                      <Area type="monotone" dataKey="cumulative" stroke={color} strokeWidth={1.5} fill="url(#cumPnlGrad)" dot={false} activeDot={{ r: 3 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </Card>
+              );
+            })()}
             <Card className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -570,6 +639,7 @@ export default function PaperTrading() {
                 </tbody>
               </table>
             </Card>
+            </>
           )}
         </>
       )}
