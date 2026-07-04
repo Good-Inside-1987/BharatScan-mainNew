@@ -46,47 +46,43 @@ export function GlobalHeader() {
 
   return (
     <header className="border-b border-border bg-card/40 backdrop-blur sticky top-0 z-10">
-      <div className="container relative flex items-center py-1.5 gap-4">
-        {/* Left — logo + brand + market status */}
-        <div className="flex-shrink-0">
-          <div className="flex items-center gap-1">
-            <img
-              src={logoUrl}
-              alt="BharatScan logo"
-              className={`h-9 w-9 object-contain transition-[filter] duration-300 ${
-                theme === "light"
-                  ? "[filter:invert(1)_drop-shadow(0_0_4px_rgba(96,165,250,0.3))_drop-shadow(0_0_8px_rgba(34,197,94,0.15))]"
-                  : "[filter:drop-shadow(0_0_4px_rgba(96,165,250,0.2))_drop-shadow(0_0_8px_rgba(34,197,94,0.1))]"
-              }`}
-            />
-            <div>
-              <h1 className="text-base font-bold tracking-tight leading-tight">BharatScan</h1>
-              <p className="text-[9px] text-muted-foreground leading-tight">Scan Smart. Filter Better. Invest Wisely.</p>
+      <div className="container relative flex items-center py-1 gap-4">
+        {/* Left — logo + brand + market status all on one row */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <img
+            src={logoUrl}
+            alt="BharatScan logo"
+            className={`h-7 w-7 object-contain transition-[filter] duration-300 ${
+              theme === "light"
+                ? "[filter:invert(1)_drop-shadow(0_0_4px_rgba(96,165,250,0.3))_drop-shadow(0_0_8px_rgba(34,197,94,0.15))]"
+                : "[filter:drop-shadow(0_0_4px_rgba(96,165,250,0.2))_drop-shadow(0_0_8px_rgba(34,197,94,0.1))]"
+            }`}
+          />
+          <div>
+            <div className="flex items-center gap-2 leading-none">
+              <h1 className="text-sm font-bold tracking-tight">BharatScan</h1>
+              {/* Market Status inline */}
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold whitespace-nowrap">
+                  Market Is
+                </span>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-px rounded text-[9px] font-bold whitespace-nowrap ${
+                  closed
+                    ? "bg-destructive-bright/10 text-destructive-bright border border-destructive-bright/40"
+                    : "bg-success/10 text-success border border-success/40"
+                }`}>
+                  <span className={`h-1.5 w-1.5 rounded-full animate-pulse ${closed ? "bg-destructive-bright" : "bg-success"}`} />
+                  {statusLabel}
+                </span>
+                <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold whitespace-nowrap">
+                  {marketTarget.label}
+                </span>
+                {occasion && (
+                  <span className="text-[9px] text-muted-foreground">• {occasion}</span>
+                )}
+              </div>
             </div>
-          </div>
-          {/* Market Status */}
-          <div className="mt-1 ml-10">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold whitespace-nowrap">
-                Market Is
-              </span>
-              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap ${
-                closed
-                  ? "bg-destructive-bright/10 text-destructive-bright border border-destructive-bright/40"
-                  : "bg-success/10 text-success border border-success/40"
-              }`}>
-                <span className={`h-1.5 w-1.5 rounded-full animate-pulse ${closed ? "bg-destructive-bright" : "bg-success"}`} />
-                {statusLabel}
-              </span>
-              <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold whitespace-nowrap">
-                {marketTarget.label}
-              </span>
-            </div>
-            {occasion && (
-              <p className="text-[9px] text-muted-foreground mt-0.5" title={occasion}>
-                {occasion}
-              </p>
-            )}
+            <p className="text-[9px] text-muted-foreground leading-tight">Scan Smart. Filter Better. Invest Wisely.</p>
           </div>
         </div>
 
@@ -96,12 +92,12 @@ export function GlobalHeader() {
             className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center justify-center text-center pointer-events-none max-w-xl px-4"
             style={{ opacity: quoteFade ? 1 : 0, transition: "opacity 0.4s ease" }}
           >
-            <p className="text-sm font-bold italic text-foreground/90 leading-snug line-clamp-2">
-              <span className="text-primary font-bold text-base not-italic mr-1 leading-none align-bottom">"</span>
+            <p className="text-xs font-bold italic text-foreground/90 leading-snug line-clamp-1">
+              <span className="text-primary font-bold text-sm not-italic mr-1 leading-none align-bottom">"</span>
               {activeQuote.text}
-              <span className="text-primary font-bold text-base not-italic ml-0.5 leading-none align-bottom">"</span>
+              <span className="text-primary font-bold text-sm not-italic ml-0.5 leading-none align-bottom">"</span>
             </p>
-            <p className="text-[11px] text-foreground/70 font-medium mt-1 tracking-wide">
+            <p className="text-[10px] text-foreground/70 font-medium tracking-wide">
               — {activeQuote.author}
             </p>
           </div>
@@ -112,7 +108,7 @@ export function GlobalHeader() {
 
         {/* Right — date mode toggle + calendar picker + date label */}
         <div className="flex items-center gap-3 text-sm flex-shrink-0">
-          <div className="flex flex-col items-center gap-0.5">
+          <div className="flex items-center gap-1.5">
             {/* Date-mode pill */}
             <div className="inline-flex items-center rounded border border-border bg-input p-px h-5" title="Switch between today's date and a historical 'as of' date">
               <button
