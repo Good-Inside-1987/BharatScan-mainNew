@@ -585,6 +585,7 @@ export default function PaperTrading() {
                     <th className="text-left px-3 py-2 text-[9px] font-semibold w-[80px]">Type</th>
                     <th className="text-left px-3 py-2 text-[9px] font-semibold">Instrument</th>
                     <th className="text-left px-3 py-2 text-[9px] font-semibold">Side</th>
+                    <th className="text-right px-3 py-2 text-[9px] font-semibold">Lot</th>
                     <th className="text-right px-3 py-2 text-[9px] font-semibold">Qty</th>
                     <th className="text-right px-3 py-2 text-[9px] font-semibold">Entry</th>
                     <th className="text-right px-3 py-2 text-[9px] font-semibold">LTP</th>
@@ -632,7 +633,12 @@ export default function PaperTrading() {
                           {p.side === "long" ? "BUY" : "SELL"}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-right text-xs text-foreground">{p.qty}</td>
+                      <td className="px-3 py-2 text-right text-xs text-foreground">
+                        {p.instrument_type === "stock" ? "-" : p.qty}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs text-foreground">
+                        {p.instrument_type === "stock" ? p.qty : p.qty * p.lot_size}
+                      </td>
                       <td className="px-3 py-2 text-right text-xs text-foreground">{fmtRs(p.entry_price, 2)}</td>
                       <td className="px-3 py-2 text-right text-xs text-foreground">{p.ltp === null ? "—" : fmtRs(p.ltp, 2)}</td>
                       <td className={`px-3 py-2 text-right text-xs font-semibold ${p.pnl === null ? "text-muted-foreground" : pnlClass(p.pnl)}`}>
