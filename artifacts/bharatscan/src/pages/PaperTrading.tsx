@@ -83,6 +83,28 @@ function optDte(today: string, expiry: string): number {
 
 const CHAIN_INDEX_ORDER = ["NIFTY", "BANKNIFTY", "FINNIFTY", "NIFTYNXT50", "MIDCPNIFTY", "SENSEX", "BANKEX"];
 
+interface ChainStratLeg { type: "CE" | "PE"; action: "BUY" | "SELL"; offset: number; }
+interface ChainStrat { name: string; emoji: string; category: "neutral" | "bullish" | "bearish" | "other"; legs: ChainStratLeg[]; }
+
+const CHAIN_STRATEGIES: ChainStrat[] = [
+  // Neutral
+  { name: "Short Straddle",  emoji: "⚖️",  category: "neutral",  legs: [{ type:"CE", action:"SELL", offset:0 }, { type:"PE", action:"SELL", offset:0 }] },
+  { name: "Long Straddle",   emoji: "🎯",  category: "neutral",  legs: [{ type:"CE", action:"BUY",  offset:0 }, { type:"PE", action:"BUY",  offset:0 }] },
+  { name: "Short Strangle",  emoji: "🦀",  category: "neutral",  legs: [{ type:"CE", action:"SELL", offset:1 }, { type:"PE", action:"SELL", offset:-1 }] },
+  { name: "Long Strangle",   emoji: "🦋",  category: "neutral",  legs: [{ type:"CE", action:"BUY",  offset:1 }, { type:"PE", action:"BUY",  offset:-1 }] },
+  { name: "Iron Condor",     emoji: "🦅",  category: "neutral",  legs: [{ type:"PE", action:"BUY", offset:-2 }, { type:"PE", action:"SELL", offset:-1 }, { type:"CE", action:"SELL", offset:1 }, { type:"CE", action:"BUY", offset:2 }] },
+  { name: "Iron Butterfly",  emoji: "🦚",  category: "neutral",  legs: [{ type:"PE", action:"BUY", offset:-1 }, { type:"PE", action:"SELL", offset:0  }, { type:"CE", action:"SELL", offset:0  }, { type:"CE", action:"BUY", offset:1 }] },
+  // Bullish
+  { name: "Bull Call Spread",emoji: "📈",  category: "bullish",  legs: [{ type:"CE", action:"BUY",  offset:0 }, { type:"CE", action:"SELL", offset:1  }] },
+  { name: "Bull Put Spread", emoji: "🐂",  category: "bullish",  legs: [{ type:"PE", action:"BUY",  offset:-1}, { type:"PE", action:"SELL", offset:0  }] },
+  // Bearish
+  { name: "Bear Put Spread", emoji: "📉",  category: "bearish",  legs: [{ type:"PE", action:"BUY",  offset:0 }, { type:"PE", action:"SELL", offset:-1 }] },
+  { name: "Bear Call Spread",emoji: "🐻",  category: "bearish",  legs: [{ type:"CE", action:"BUY",  offset:1 }, { type:"CE", action:"SELL", offset:0  }] },
+  // Other
+  { name: "Batman",          emoji: "🦇",  category: "other",    legs: [{ type:"PE", action:"BUY", offset:-2 }, { type:"PE", action:"SELL", offset:-1 }, { type:"PE", action:"SELL", offset:0 }, { type:"CE", action:"SELL", offset:0 }, { type:"CE", action:"SELL", offset:1 }, { type:"CE", action:"BUY", offset:2 }] },
+  { name: "Jade Lizard",     emoji: "🦎",  category: "other",    legs: [{ type:"PE", action:"SELL", offset:-1}, { type:"CE", action:"SELL", offset:1  }, { type:"CE", action:"BUY", offset:2 }] },
+];
+
 function getStockLtp(histories: { symbol: string; bars: { date: string; close: number }[] }[], symbol: string, asOfDate: string | null): number | null {
   const h = histories.find((s) => s.symbol.toUpperCase() === symbol.toUpperCase());
   if (!h || !h.bars.length) return null;
@@ -1831,6 +1853,33 @@ function OptionsChainTradeFlow({
     if (next) setSelectedExpiry(next);
   }
 
+  // Strategy quick-select
+  const [stratFilter, setStratFilter] = useState<ChainStrat["category"] | "all">("neutral");
+
+  function applyChainStrategy(strat: ChainStrat) {
+    if (!chain.length || !atmK) return;
+    const strikes = chain.map((r) => r.strike).sort((a, b) => a - b);
+    const atmIdx = strikes.indexOf(atmK);
+    if (atmIdx < 0) return;
+    const newLegs: DraftLeg[] = [];
+    for (const def of strat.legs) {
+      const idx = atmIdx + def.offset;
+      if (idx < 0 || idx >= strikes.length) continue;
+      const strike = strikes[idx];
+      const row = chain.find((r) => r.strike === strike);
+      if (!row) continue;
+      const price = def.type === "CE" ? row.ce : row.pe;
+      if (price <= 0) continue;
+      newLegs.push({
+        id: crypto.randomUUID(),
+        underlying: activeSymbol, expiry: activeExpiry,
+        strike, type: def.type, action: def.action,
+        lots: 1, lotSize, entryPrice: price,
+      });
+    }
+    if (newLegs.length) setDraftLegs(newLegs);
+  }
+
   useEffect(() => {
     const fn = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", fn);
@@ -1967,6 +2016,56 @@ function OptionsChainTradeFlow({
               className="px-1.5 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/30 disabled:opacity-25 border-l border-border/40 transition-colors">
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
+          </div>
+
+          {/* Strategy quick-select bar */}
+          <div className="border-b border-border/40 bg-[#0a0d14] shrink-0">
+            {/* Category pills */}
+            <div className="flex items-center gap-1 px-2 pt-1.5 pb-1">
+              {(["neutral","bullish","bearish","other"] as const).map((cat) => {
+                const colors: Record<string, string> = {
+                  neutral:  "border-cyan-500/50 text-cyan-400 bg-cyan-500/10",
+                  bullish:  "border-emerald-500/50 text-emerald-400 bg-emerald-500/10",
+                  bearish:  "border-red-500/50 text-red-400 bg-red-500/10",
+                  other:    "border-purple-500/50 text-purple-400 bg-purple-500/10",
+                };
+                const dim = "border-border/40 text-muted-foreground/60 bg-transparent";
+                const isActive = stratFilter === cat;
+                return (
+                  <button key={cat} type="button"
+                    onClick={() => setStratFilter(isActive ? "all" : cat)}
+                    className={`px-2 py-0.5 rounded-full text-[9px] font-bold border transition-all capitalize ${isActive ? colors[cat] : dim + " hover:border-border"}`}>
+                    {cat}
+                  </button>
+                );
+              })}
+              <span className="ml-auto text-[9px] text-muted-foreground/40">quick strategies</span>
+            </div>
+            {/* Strategy chips — scrollable */}
+            <div className="flex gap-1 px-2 pb-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {CHAIN_STRATEGIES
+                .filter((s) => stratFilter === "all" || s.category === stratFilter)
+                .map((strat) => {
+                  const catBg: Record<string, string> = {
+                    neutral: "border-cyan-500/30 hover:bg-cyan-500/10 hover:border-cyan-400/60",
+                    bullish: "border-emerald-500/30 hover:bg-emerald-500/10 hover:border-emerald-400/60",
+                    bearish: "border-red-500/30 hover:bg-red-500/10 hover:border-red-400/60",
+                    other:   "border-purple-500/30 hover:bg-purple-500/10 hover:border-purple-400/60",
+                  };
+                  const disabled = !chain.length || !atmK;
+                  return (
+                    <button key={strat.name} type="button"
+                      disabled={disabled}
+                      onClick={() => applyChainStrategy(strat)}
+                      title={`${strat.legs.length}-leg strategy at ATM${strat.legs.some(l=>l.offset!==0) ? " ± offsets" : ""}`}
+                      className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-semibold text-foreground/80 transition-all disabled:opacity-30 active:scale-95 ${catBg[strat.category]}`}>
+                      <span>{strat.emoji}</span>
+                      <span className="whitespace-nowrap">{strat.name}</span>
+                      <span className="text-[8px] text-muted-foreground/50 ml-0.5">{strat.legs.length}L</span>
+                    </button>
+                  );
+                })}
+            </div>
           </div>
 
           {/* Chain column headers */}
