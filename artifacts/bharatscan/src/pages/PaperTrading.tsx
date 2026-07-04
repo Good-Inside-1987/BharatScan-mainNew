@@ -547,13 +547,13 @@ export default function PaperTrading() {
             </button>
             <button
               onClick={() => setShowFuturesTrade(true)}
-              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 active:scale-95 transition"
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border border-amber-500/50 text-amber-400 rounded-lg hover:bg-amber-500/10 active:scale-95 transition"
             >
               <Plus className="h-3 w-3" /> Trade in Futures
             </button>
             <button
               onClick={() => setShowOptionsTrade(true)}
-              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border border-primary/60 text-primary rounded-lg hover:bg-primary/10 active:scale-95 transition"
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border border-purple-500/50 text-purple-400 rounded-lg hover:bg-purple-500/10 active:scale-95 transition"
             >
               <Plus className="h-3 w-3" /> Trade in Options
             </button>
