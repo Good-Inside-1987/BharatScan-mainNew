@@ -703,6 +703,7 @@ export default function PaperTrading() {
                   <tr className="border-b border-border bg-muted/40 text-muted-foreground uppercase tracking-wide">
                     <th className="text-left px-3 py-2 text-[9px] font-semibold">Instrument</th>
                     <th className="text-left px-3 py-2 text-[9px] font-semibold">Side</th>
+                    <th className="text-right px-3 py-2 text-[9px] font-semibold">Lot</th>
                     <th className="text-right px-3 py-2 text-[9px] font-semibold">Qty</th>
                     <th className="text-right px-3 py-2 text-[9px] font-semibold">Entry</th>
                     <th className="text-right px-3 py-2 text-[9px] font-semibold">Exit</th>
@@ -712,7 +713,7 @@ export default function PaperTrading() {
                 </thead>
                 <tbody>
                   {trades.length === 0 && (
-                    <tr><td colSpan={7} className="text-center py-6 text-xs text-muted-foreground">No closed trades yet.</td></tr>
+                    <tr><td colSpan={8} className="text-center py-6 text-xs text-muted-foreground">No closed trades yet.</td></tr>
                   )}
                   {trades.map((t) => (
                     <tr key={t.id} className="border-b border-border/50 hover:bg-muted/20">
@@ -734,7 +735,12 @@ export default function PaperTrading() {
                           {t.side === "long" ? "BUY" : "SELL"}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-right text-xs text-foreground">{t.qty}</td>
+                      <td className="px-3 py-2 text-right text-xs text-foreground">
+                        {t.instrument_type === "stock" ? "-" : t.qty}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs text-foreground">
+                        {t.instrument_type === "stock" ? t.qty : t.qty * t.lot_size}
+                      </td>
                       <td className="px-3 py-2 text-right text-xs text-foreground">{fmtRs(t.entry_price, 2)}</td>
                       <td className="px-3 py-2 text-right text-xs text-foreground">{fmtRs(t.exit_price, 2)}</td>
                       <td className={`px-3 py-2 text-right text-xs font-semibold ${pnlClass(t.realized_pnl)}`}>{fmtPnl(t.realized_pnl)}</td>
