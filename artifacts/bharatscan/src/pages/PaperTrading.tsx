@@ -146,12 +146,12 @@ function SymbolPicker({ symbols, value, onChange, placeholder }: {
 function StatCard({ label, value, icon: Icon, tone }: { label: string; value: string; icon: React.ComponentType<{ className?: string }>; tone?: "up" | "down" | "neutral" }) {
   const toneCls = tone === "up" ? "text-emerald-500" : tone === "down" ? "text-red-500" : "text-foreground";
   return (
-    <Card className="px-3 py-2">
-      <div className="flex items-center justify-between mb-0.5">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
-        <Icon className="h-3 w-3 text-muted-foreground/60" />
+    <Card className="px-3 py-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+        <Icon className="h-2.5 w-2.5 text-muted-foreground/60" />
       </div>
-      <div className={`text-sm font-bold ${toneCls}`}>{value}</div>
+      <div className={`text-xs font-bold leading-tight ${toneCls}`}>{value}</div>
     </Card>
   );
 }
