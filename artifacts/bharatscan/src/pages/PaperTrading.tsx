@@ -363,7 +363,7 @@ export default function PaperTrading() {
   });
 
   return (
-    <div className="p-3 space-y-1.5 max-w-[1400px] mx-auto">
+    <div className="px-3 pb-3 pt-1 space-y-1.5 max-w-[1400px] mx-auto">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
