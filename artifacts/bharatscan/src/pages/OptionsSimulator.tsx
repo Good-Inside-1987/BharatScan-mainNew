@@ -965,7 +965,14 @@ export default function OptionsSimulator() {
     }));
   }, [chain]);
 
-  const clearLegs = useCallback(() => { setLegs([]); setRightView("strategies"); }, []);
+  const clearLegs = useCallback(() => {
+    setLegs([]);
+    setRightView("strategies");
+    setSelectedExpiry("");
+    setSimDate(latestDate ?? "");
+    setSimTime("09:15");
+    setMultiplier(1);
+  }, [latestDate]);
 
   // Apply ready-made strategy
   const applyStrategy = useCallback((strat: StrategyDef) => {

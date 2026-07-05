@@ -310,13 +310,6 @@ export default function StockSimulator() {
   const [legs,          setLegs]          = useState<StockLeg[]>([]);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const isDirty = search !== "" || universeId !== "nse-cash" || simDate !== (latestDate ?? "") || simTime !== "09:15";
-  function handleReset() {
-    setSearch("");
-    setUniverseId("nse-cash");
-    setSimDate(latestDate ?? "");
-    setSimTime("09:15");
-  }
   const [focusSymbol,   setFocusSymbol]   = useState<string>("");
   const [hoveredSymbol, setHoveredSymbol] = useState<string | null>(null);
   // ── QTY / Amount mode ─────────────────────────────────────────────────────
@@ -333,6 +326,18 @@ export default function StockSimulator() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [showModeMenu]);
+
+  const isDirty = search !== "" || universeId !== "nse-cash" || simDate !== (latestDate ?? "") || simTime !== "09:15"
+    || qtyMode !== "qty" || globalQty !== 1 || globalAmount !== 50000;
+  function handleReset() {
+    setSearch("");
+    setUniverseId("nse-cash");
+    setSimDate(latestDate ?? "");
+    setSimTime("09:15");
+    setQtyMode("qty");
+    setGlobalQty(1);
+    setGlobalAmount(50000);
+  }
 
   const stockRows = useMemo((): StockRow[] => {
     if (!effectiveDate) return [];
