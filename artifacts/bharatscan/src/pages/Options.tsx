@@ -525,7 +525,9 @@ export default function OptionsPage() {
             onClick={() => setPageTab(key as "simulator" | "stock-simulator" | "analysis")}
             className={`flex items-center gap-1.5 px-4 py-1 text-sm font-semibold border-b-2 -mb-px transition-colors ${
               pageTab === key
-                ? "border-primary text-primary"
+                ? key === "simulator"
+                  ? "border-purple-500 text-purple-500"
+                  : "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
