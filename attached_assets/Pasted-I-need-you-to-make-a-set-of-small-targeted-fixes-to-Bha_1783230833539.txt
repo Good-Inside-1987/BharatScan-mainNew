@@ -1,0 +1,257 @@
+I need you to make a set of small, targeted fixes to BharatScan before
+I connect the Angel One SmartAPI. Do NOT add any new features. Do NOT
+touch PaperTrading.tsx, OptionsSimulator.tsx, StockSimulator.tsx,
+or any page components. Only fix the specific issues listed below.
+
+Context
+
+BharatScan is a React 19 + TypeScript frontend (Vite, in
+artifacts/bharatscan/), Express + Node.js backend (in server/),
+SQLite via node:sqlite, pnpm monorepo. The server entry point is
+server/src/index.ts. The Vite config is at
+artifacts/bharatscan/vite.config.ts.
+
+
+FIX 1 — Global Express error handler
+
+In server/src/index.ts, add this as the VERY LAST middleware,
+after all routes and after app.listen(...). This is critical for
+debugging Angel API failures — without it, any unhandled error
+crashes the request silently:
+
+tsapp.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[SERVER ERROR]', new Date().toISOString(), err.message);
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(err.stack);
+  }
+  if (res.headersSent) return;
+  res.status(500).json({ error: err.message || 'Internal server error' });
+});
+
+Also add import express from 'express' types if not already imported
+so the express.Request / express.Response types resolve correctly.
+
+
+FIX 2 — Express JSON body size limit
+
+In server/src/index.ts, find:
+
+tsapp.use(express.json());
+
+Replace with:
+
+tsapp.use(express.json({ limit: '10mb' }));
+
+
+FIX 3 — SPA catch-all route (fixes 404 on page refresh)
+
+In server/src/index.ts, after all /api/* routes are registered
+but BEFORE the global error handler from Fix 1, add:
+
+tsimport path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Serve built frontend in production
+if (process.env.NODE_ENV === 'production') {
+  const distPath = path.resolve(__dirname, '../../artifacts/bharatscan/dist/public');
+  app.use(express.static(distPath));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
+
+This fixes the problem where refreshing the browser at /portfolio,
+/paper-trading, or any non-root page returns a 404 on Oracle.
+In Replit dev mode, Vite handles routing so this block is skipped.
+
+
+FIX 4 — Guard Replit-specific Vite plugins
+
+In artifacts/bharatscan/vite.config.ts, runtimeErrorOverlay()
+currently runs everywhere including Oracle production, where it
+causes build issues. Fix it:
+
+Find:
+
+tsplugins: [
+  react(),
+  runtimeErrorOverlay(),
+
+Replace with:
+
+tsplugins: [
+  react(),
+  ...(process.env.REPL_ID ? [runtimeErrorOverlay()] : []),
+
+The cartographer plugin already has a guard — leave that one alone.
+
+
+FIX 5 — Configure QueryClient to stop unnecessary refetches
+
+In artifacts/bharatscan/src/App.tsx, find:
+
+tsconst queryClient = new QueryClient();
+
+Replace with:
+
+tsconst queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,   // data stays fresh for 5 minutes
+      refetchOnWindowFocus: false, // don't refetch every time user switches tabs
+      retry: 1,                    // only retry failed requests once
+    },
+  },
+});
+
+
+FIX 6 — Add database indexes on existing tables
+
+In server/src/db.ts, after the existing table creation statements
+(at the end of the file, before the db_version block), add:
+
+ts// Performance indexes — safe to add; CREATE INDEX IF NOT EXISTS is idempotent
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_holdings_portfolio
+    ON holdings(portfolio_id);
+
+  CREATE INDEX IF NOT EXISTS idx_booked_trades_portfolio
+    ON booked_trades(portfolio_id);
+
+  CREATE INDEX IF NOT EXISTS idx_alerts_status
+    ON alerts(status);
+
+  CREATE INDEX IF NOT EXISTS idx_alert_triggers_alert
+    ON alert_triggers(alert_id);
+
+  CREATE INDEX IF NOT EXISTS idx_paper_positions_account
+    ON paper_positions(account_id, status);
+
+  CREATE INDEX IF NOT EXISTS idx_paper_trades_account
+    ON paper_trades(account_id);
+
+  CREATE INDEX IF NOT EXISTS idx_scanner_dashboard_scans_dashboard
+    ON scanner_dashboard_scans(dashboard_id);
+
+  CREATE INDEX IF NOT EXISTS idx_saved_scans_updated
+    ON saved_scans(updated_at);
+`);
+
+
+FIX 7 — Rewrite post-merge.sh (Replit only)
+
+Replace the entire contents of scripts/post-merge.sh with:
+
+sh#!/bin/bash
+# This script runs in Replit after a git merge.
+# Oracle uses GitHub Actions instead — do NOT use this script on Oracle.
+set -e
+echo "[post-merge] Installing dependencies..."
+pnpm install --frozen-lockfile
+echo "[post-merge] Done."
+
+The old script had pnpm --filter db push which references a
+workspace package that does not exist and crashes every time.
+
+
+FIX 8 — Remove Replit-internal proxy script
+
+Delete the file scripts/proxy-22167.mjs. It is a Replit-internal
+port proxy with no use on Oracle or in production.
+
+If deleting it causes any import error elsewhere, find that import
+and remove it. But it should not be imported anywhere — it was a
+standalone Replit process script.
+
+
+FIX 9 — Add PM2 ecosystem config
+
+Create ecosystem.config.js at the project root (same level as
+package.json):
+
+js// PM2 process configuration for Oracle production deployment.
+// Three separate named processes so deploys only restart the web
+// server without touching the scheduler or Cloudflare tunnel.
+module.exports = {
+  apps: [
+    {
+      name: 'bharatscan',
+      script: 'server/dist/index.js',
+      node_args: '--experimental-vm-modules',
+      env_production: {
+        NODE_ENV: 'production',
+        SERVER_PORT: '3001',
+      },
+      error_file: 'logs/bharatscan-error.log',
+      out_file: 'logs/bharatscan-out.log',
+      time: true,
+    },
+    {
+      name: 'bharatscan-scheduler',
+      script: 'server/dist/scheduler/standalone.js',
+      node_args: '--experimental-vm-modules',
+      env_production: {
+        NODE_ENV: 'production',
+      },
+      error_file: 'logs/scheduler-error.log',
+      out_file: 'logs/scheduler-out.log',
+      time: true,
+    },
+    {
+      name: 'bharatscan-tunnel',
+      script: 'cloudflared',
+      args: 'tunnel run',
+      interpreter: 'none',
+      autorestart: true,
+      error_file: 'logs/tunnel-error.log',
+      out_file: 'logs/tunnel-out.log',
+    },
+  ],
+};
+
+Also create a logs/ directory at the project root with a .gitkeep
+file so PM2 has somewhere to write logs. Add logs/*.log to
+.gitignore.
+
+
+FIX 10 — Add production start script
+
+In the root package.json, add to the scripts section:
+
+json"start": "node server/dist/index.js",
+"start:scheduler": "node server/dist/scheduler/standalone.js",
+"build:server": "cd server && pnpm build",
+"build:frontend": "cd artifacts/bharatscan && pnpm build",
+"build": "pnpm build:server && pnpm build:frontend"
+
+Check what scripts already exist and only add the ones that are
+missing — do not duplicate existing entries.
+
+
+What NOT to do
+
+
+Do NOT touch any page components (PaperTrading, OptionsSimulator, etc.)
+Do NOT change any database schema (table structure)
+Do NOT add any new routes
+Do NOT add any new npm packages
+
+
+
+Verify all fixes are done
+
+
+Start the dev server — it must start with zero errors
+Open the app — all existing features still work
+Refresh the page at /paper-trading or /portfolio in dev mode
+— Vite handles this, should work fine
+Check server/src/index.ts — the global error handler must be
+the last app.use(...) call in the file
+Check artifacts/bharatscan/vite.config.ts — runtimeErrorOverlay()
+must be inside a process.env.REPL_ID ? [...] : [] conditional
+Check scripts/post-merge.sh — must NOT contain pnpm --filter db push
+Check scripts/proxy-22167.mjs — must not exist
+Check ecosystem.config.js — must exist at project root
+Run pnpm build — must complete with zero errors

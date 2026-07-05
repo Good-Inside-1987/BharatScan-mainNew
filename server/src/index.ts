@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 import { db } from "./db.js";
 import scansRouter from "./routes/scans.js";
 import settingsRouter from "./routes/settings.js";
@@ -9,11 +11,13 @@ import scannerDashboardsRouter from "./routes/scannerDashboards.js";
 import alertsRouter from "./routes/alerts.js";
 import paperTradingRouter from "./routes/paperTrading.js";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const app = express();
 const port = Number(process.env.SERVER_PORT ?? 3001);
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 app.use("/api/scans", scansRouter);
 app.use("/api/settings", settingsRouter);
@@ -30,6 +34,24 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", db_version: meta?.value ?? "unknown" });
 });
 
+// Serve built frontend in production
+if (process.env.NODE_ENV === "production") {
+  const distPath = path.resolve(__dirname, "../../artifacts/bharatscan/dist/public");
+  app.use(express.static(distPath));
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+}
+
 app.listen(port, () => {
   console.log(`BharatScan server running on http://localhost:${port}`);
+});
+
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("[SERVER ERROR]", new Date().toISOString(), err.message);
+  if (process.env.NODE_ENV !== "production") {
+    console.error(err.stack);
+  }
+  if (res.headersSent) return;
+  res.status(500).json({ error: err.message || "Internal server error" });
 });

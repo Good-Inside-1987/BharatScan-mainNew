@@ -8,7 +8,11 @@
     "build:dev": "cd artifacts/bharatscan && PORT=${PORT:-8080} BASE_PATH=${BASE_PATH:-/} node_modules/.bin/vite build --config vite.config.ts --mode development",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "start": "node server/dist/index.js",
+    "start:scheduler": "node server/dist/scheduler/standalone.js",
+    "build:server": "cd server && pnpm build",
+    "build:frontend": "cd artifacts/bharatscan && pnpm build"
   },
   "private": true,
   "devDependencies": {

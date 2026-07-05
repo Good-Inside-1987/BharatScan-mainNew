@@ -229,6 +229,33 @@ if (paperAccountCount === 0) {
   ).run(defaultId, "My Paper Account", 1000000, 1000000, now, now);
 }
 
+// Performance indexes — safe to add; CREATE INDEX IF NOT EXISTS is idempotent
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_holdings_portfolio
+    ON holdings(portfolio_id);
+
+  CREATE INDEX IF NOT EXISTS idx_booked_trades_portfolio
+    ON booked_trades(portfolio_id);
+
+  CREATE INDEX IF NOT EXISTS idx_alerts_status
+    ON alerts(status);
+
+  CREATE INDEX IF NOT EXISTS idx_alert_triggers_alert
+    ON alert_triggers(alert_id);
+
+  CREATE INDEX IF NOT EXISTS idx_paper_positions_account
+    ON paper_positions(account_id, status);
+
+  CREATE INDEX IF NOT EXISTS idx_paper_trades_account
+    ON paper_trades(account_id);
+
+  CREATE INDEX IF NOT EXISTS idx_scanner_dashboard_scans_dashboard
+    ON scanner_dashboard_scans(dashboard_id);
+
+  CREATE INDEX IF NOT EXISTS idx_saved_scans_updated
+    ON saved_scans(updated_at);
+`);
+
 // ── DB version ────────────────────────────────────────────────────────────────
 const existingVersion = db
   .prepare("SELECT value FROM app_meta WHERE key = ?")
