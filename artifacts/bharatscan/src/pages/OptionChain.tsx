@@ -775,10 +775,11 @@ export default function OptionChainTab() {
           No chain data for selected date / expiry
         </div>
       ) : (
-        <div className="flex-1 overflow-hidden flex flex-col">
-          <div className="overflow-x-auto overflow-y-hidden flex flex-col flex-1" style={{ minWidth: 0 }}>
-            {/* Sticky header */}
-            <div className="shrink-0 bg-[#0d1117] border-b border-border">
+        <div className="flex-1 overflow-hidden">
+          {/* Single scroll container — header and rows share one scroll position */}
+          <div ref={chainScrollRef} className="h-full overflow-auto">
+            {/* Sticky header — stays at top during vertical scroll, moves with horizontal scroll */}
+            <div className="sticky top-0 z-10 bg-[#0d1117] border-b border-border">
               {/* Group header: CALLS | center | PUTS */}
               <div className="flex text-[9px] font-black uppercase tracking-widest">
                 <div className="flex-1 text-center py-1 text-red-400 bg-red-500/5 border-r border-border/30">CALLS</div>
@@ -858,7 +859,7 @@ export default function OptionChainTab() {
             </div>
 
             {/* Rows */}
-            <div ref={chainScrollRef} className="flex-1 overflow-y-auto overflow-x-auto bg-[#0d1117]">
+            <div className="bg-[#0d1117] min-w-max">
               {enrichedChain.map((row) => {
                 const isATM = row.strike === atmK;
                 const isCeITM = !isATM && spot > 0 && row.strike < spot;
