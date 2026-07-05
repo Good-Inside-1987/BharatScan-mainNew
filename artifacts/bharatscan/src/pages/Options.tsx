@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { BarChart2, TrendingUp, TrendingDown, Activity, Database, Search, ArrowUpDown, ChevronUp, ChevronDown, LineChart as LineChartIcon, Sliders, CandlestickChart } from "lucide-react";
+import { BarChart2, TrendingUp, TrendingDown, Activity, Database, Search, ArrowUpDown, ChevronUp, ChevronDown, LineChart as LineChartIcon, Sliders, CandlestickChart, Link2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useData } from "@/context/DataContext";
 import type { OptionBar, OptionsDataset } from "@/lib/options";
 import OptionsSimulator from "./OptionsSimulator";
 import StockSimulator from "./StockSimulator";
+import OptionChainTab from "./OptionChain";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -508,13 +509,14 @@ function OptionsAnalysisTab() {
 // ── Top-level page with tabs ───────────────────────────────────────────────────
 
 export default function OptionsPage() {
-  const [pageTab, setPageTab] = useState<"simulator" | "stock-simulator" | "analysis">("simulator");
+  const [pageTab, setPageTab] = useState<"chain" | "simulator" | "stock-simulator" | "analysis">("chain");
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
       {/* Page-level tab bar */}
       <div className="flex items-center border-b border-border bg-card px-4 shrink-0">
         {[
+          { key: "chain",           label: "Option Chain",     icon: Link2             },
           { key: "simulator",       label: "Option Simulator", icon: Sliders           },
           { key: "stock-simulator", label: "Stock Simulator",  icon: CandlestickChart  },
           { key: "analysis",        label: "Options Analysis", icon: BarChart2          },
@@ -522,12 +524,14 @@ export default function OptionsPage() {
           <button
             key={key}
             type="button"
-            onClick={() => setPageTab(key as "simulator" | "stock-simulator" | "analysis")}
+            onClick={() => setPageTab(key as "chain" | "simulator" | "stock-simulator" | "analysis")}
             className={`flex items-center gap-1.5 px-4 py-1 text-sm font-semibold border-b-2 -mb-px transition-colors ${
               pageTab === key
-                ? key === "simulator"
-                  ? "border-purple-500 text-purple-500"
-                  : "border-primary text-primary"
+                ? key === "chain"
+                  ? "border-cyan-500 text-cyan-400"
+                  : key === "simulator"
+                    ? "border-purple-500 text-purple-500"
+                    : "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -538,6 +542,7 @@ export default function OptionsPage() {
       </div>
 
       {/* Tab content */}
+      {pageTab === "chain"           && <OptionChainTab />}
       {pageTab === "analysis"        && <OptionsAnalysisTab />}
       {pageTab === "simulator"       && <OptionsSimulator />}
       {pageTab === "stock-simulator" && <StockSimulator />}
