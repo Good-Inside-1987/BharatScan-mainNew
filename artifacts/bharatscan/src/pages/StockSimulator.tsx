@@ -645,17 +645,20 @@ export default function StockSimulator() {
             </div>
 
             {/* Reset to defaults */}
-            {isDirty && (
-              <button
-                type="button"
-                onClick={handleReset}
-                title="Reset to defaults (NSE Cash · latest date · 09:15)"
-                className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold text-amber-400/80 hover:text-amber-400 bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/20 hover:border-amber-400/40 transition-colors shrink-0"
-              >
-                <RotateCcw className="h-2.5 w-2.5" />
-                Reset
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleReset}
+              disabled={!isDirty}
+              title="Reset to defaults (NSE Cash · latest date · 09:15)"
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold border transition-colors shrink-0 ${
+                isDirty
+                  ? "text-amber-400/80 hover:text-amber-400 bg-amber-400/10 hover:bg-amber-400/20 border-amber-400/20 hover:border-amber-400/40 cursor-pointer"
+                  : "text-muted-foreground/40 bg-muted/10 border-border/30 cursor-not-allowed"
+              }`}
+            >
+              <RotateCcw className="h-2.5 w-2.5" />
+              Reset
+            </button>
           </div>
 
           {/* Column headers */}
