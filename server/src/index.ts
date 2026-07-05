@@ -2,7 +2,11 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
-import { db } from "./db.js";
+import { statSync } from "fs";
+// IMPORTANT: db.ts must be imported first — it runs migration and
+// initialises all three databases before any route handlers run.
+import { db, appDb, marketDb, liveDb } from "./db.js";
+import { config } from "./config/environment.js";
 import scansRouter from "./routes/scans.js";
 import settingsRouter from "./routes/settings.js";
 import portfolioRouter from "./routes/portfolio.js";
@@ -10,6 +14,10 @@ import dashboardsRouter from "./routes/dashboards.js";
 import scannerDashboardsRouter from "./routes/scannerDashboards.js";
 import alertsRouter from "./routes/alerts.js";
 import paperTradingRouter from "./routes/paperTrading.js";
+
+void appDb;
+void marketDb;
+void liveDb;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,6 +40,28 @@ app.get("/api/health", (_req, res) => {
     .prepare("SELECT value FROM app_meta WHERE key = ?")
     .get("db_version") as { value: string } | undefined;
   res.json({ status: "ok", db_version: meta?.value ?? "unknown" });
+});
+
+app.get("/api/market/status", (_req, res) => {
+  function getDbSizeMb(name: string): number {
+    try {
+      const s = statSync(path.join(config.dbDir, name));
+      return Math.round(s.size / 1024 / 1024 * 10) / 10;
+    } catch {
+      return 0;
+    }
+  }
+
+  res.json({
+    environment: config.env,
+    databases: {
+      app_db_mb: getDbSizeMb("app.db"),
+      market_db_mb: getDbSizeMb("market.db"),
+      live_db_mb: getDbSizeMb("live.db"),
+    },
+    angel_connected: false, // will be updated when Angel API is integrated
+    last_sync: null,        // will be populated from sync_log once Angel is running
+  });
 });
 
 // Serve built frontend in production

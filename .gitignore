@@ -4,6 +4,12 @@
 bharatscan.db
 bharatscan.db-shm
 bharatscan.db-wal
+bharatscan.db.backup
+
+# SQLite database files — never commit these
+data/*.db
+data/*.db-shm
+data/*.db-wal
 
 # Local environment overrides
 .env

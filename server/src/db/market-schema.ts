@@ -1,0 +1,158 @@
+import { DatabaseSync } from "node:sqlite";
+
+export function initMarketDb(db: DatabaseSync): void {
+  db.exec("PRAGMA journal_mode=WAL");
+  db.exec("PRAGMA foreign_keys=ON");
+
+  db.exec(`
+    -- ── Symbol master ─────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS symbols (
+      token           TEXT PRIMARY KEY,
+      symbol          TEXT NOT NULL,
+      exchange        TEXT NOT NULL,
+      isin            TEXT,
+      name            TEXT,
+      sector          TEXT,
+      industry        TEXT,
+      lot_size        INTEGER NOT NULL DEFAULT 1,
+      tick_size       REAL NOT NULL DEFAULT 0.05,
+      instrument_type TEXT,
+      is_fo_eligible  INTEGER NOT NULL DEFAULT 0,
+      index_membership TEXT,
+      listing_date    TEXT,
+      is_delisted     INTEGER NOT NULL DEFAULT 0,
+      updated_at      TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_symbols_lookup
+      ON symbols(symbol, exchange);
+    CREATE INDEX IF NOT EXISTS idx_symbols_fo
+      ON symbols(is_fo_eligible);
+
+    -- ── EOD prices ────────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS ohlcv_daily (
+      id      INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol  TEXT NOT NULL,
+      date    TEXT NOT NULL,
+      open    REAL,
+      high    REAL,
+      low     REAL,
+      close   REAL,
+      volume  INTEGER,
+      UNIQUE(symbol, date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ohlcv_daily
+      ON ohlcv_daily(symbol, date);
+
+    -- ── Intraday prices (5-min Replit / 1-min Oracle) ─────────────
+    CREATE TABLE IF NOT EXISTS ohlcv_intraday (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol    TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      open      REAL,
+      high      REAL,
+      low       REAL,
+      close     REAL,
+      volume    INTEGER,
+      UNIQUE(symbol, timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ohlcv_intraday
+      ON ohlcv_intraday(symbol, timestamp);
+
+    -- ── Options intraday ──────────────────────────────────────────
+    -- Index options: ATM ±30 strikes, both CE and PE
+    -- Stock options: ATM ±20 strikes, both CE and PE
+    CREATE TABLE IF NOT EXISTS options_intraday (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      underlying  TEXT NOT NULL,
+      expiry      TEXT NOT NULL,
+      strike      REAL NOT NULL,
+      option_type TEXT NOT NULL,
+      timestamp   TEXT NOT NULL,
+      open        REAL,
+      high        REAL,
+      low         REAL,
+      close       REAL,
+      volume      INTEGER,
+      oi          INTEGER,
+      UNIQUE(underlying, expiry, strike, option_type, timestamp)
+    );
+    CREATE INDEX IF NOT EXISTS idx_options_intraday
+      ON options_intraday(underlying, expiry, timestamp);
+
+    -- ── FII / DII ─────────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS fii_dii (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      date       TEXT NOT NULL,
+      category   TEXT NOT NULL,
+      segment    TEXT NOT NULL,
+      buy_value  REAL,
+      sell_value REAL,
+      net_value  REAL,
+      UNIQUE(date, category, segment)
+    );
+    CREATE INDEX IF NOT EXISTS idx_fii_dii ON fii_dii(date);
+
+    -- ── PE ratios ─────────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS pe_ratio (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol_or_index TEXT NOT NULL,
+      date            TEXT NOT NULL,
+      pe              REAL,
+      pb              REAL,
+      div_yield       REAL,
+      UNIQUE(symbol_or_index, date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pe ON pe_ratio(symbol_or_index, date);
+
+    -- ── Mutual fund holdings ──────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS mf_holdings (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      fund_name   TEXT NOT NULL,
+      scheme_code TEXT,
+      month_year  TEXT NOT NULL,
+      symbol      TEXT NOT NULL,
+      isin        TEXT,
+      shares_held INTEGER,
+      percentage  REAL,
+      UNIQUE(scheme_code, month_year, symbol)
+    );
+    CREATE INDEX IF NOT EXISTS idx_mf ON mf_holdings(symbol, month_year);
+
+    -- ── F&O ban list (fetched daily at 8:30 AM IST) ───────────────
+    CREATE TABLE IF NOT EXISTS fo_ban_list (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      date             TEXT NOT NULL,
+      symbol           TEXT NOT NULL,
+      mwpl_percentage  REAL,
+      UNIQUE(date, symbol)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ban ON fo_ban_list(date);
+
+    -- ── NSE holiday calendar ──────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS nse_holidays (
+      date        TEXT PRIMARY KEY,
+      description TEXT
+    );
+
+    -- ── Sync job log ──────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS sync_log (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_name       TEXT NOT NULL,
+      started_at     TEXT NOT NULL,
+      finished_at    TEXT,
+      status         TEXT,
+      rows_processed INTEGER NOT NULL DEFAULT 0,
+      error_message  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_sync_log
+      ON sync_log(job_name, started_at);
+
+    -- ── Backfill checkpoint (for resuming interrupted backfills) ───
+    CREATE TABLE IF NOT EXISTS backfill_checkpoint (
+      job_name    TEXT PRIMARY KEY,
+      last_symbol TEXT,
+      last_date   TEXT,
+      updated_at  TEXT NOT NULL
+    );
+  `);
+}

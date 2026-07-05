@@ -1,2 +1,3 @@
 - [Vite IPv6 host fix](vite-ipv6-host.md) — Replit artifact workflows use IPv6 port checks; `0.0.0.0` fails them, `::` is required.
 - [Crossover reference anchoring](crossover-reference-anchor.md) — `crossed_above/below` must compare both bars against the *current* reference `b`, not `bP`; using `bP` causes false signals at TF boundaries.
+- [node:sqlite quirks](node-sqlite-quirks.md) — `DatabaseSync` has no `.transaction()` like better-sqlite3; use manual BEGIN/COMMIT, and verify multi-table migrations standalone.
