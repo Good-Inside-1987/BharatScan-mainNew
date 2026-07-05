@@ -26,6 +26,26 @@ initMarketDb(marketDb);
 export const liveDb = new DatabaseSync(path.join(config.dbDir, "live.db"));
 initLiveDb(liveDb);
 
+// Performance indexes on app.db tables
+appDb.exec(`
+  CREATE INDEX IF NOT EXISTS idx_holdings_portfolio
+    ON holdings(portfolio_id);
+  CREATE INDEX IF NOT EXISTS idx_booked_trades_portfolio
+    ON booked_trades(portfolio_id);
+  CREATE INDEX IF NOT EXISTS idx_alerts_status
+    ON alerts(status);
+  CREATE INDEX IF NOT EXISTS idx_alert_triggers_alert
+    ON alert_triggers(alert_id);
+  CREATE INDEX IF NOT EXISTS idx_paper_positions_account
+    ON paper_positions(account_id, status);
+  CREATE INDEX IF NOT EXISTS idx_paper_trades_account
+    ON paper_trades(account_id);
+  CREATE INDEX IF NOT EXISTS idx_scanner_dashboard_scans_dashboard
+    ON scanner_dashboard_scans(dashboard_id);
+  CREATE INDEX IF NOT EXISTS idx_saved_scans_updated
+    ON saved_scans(updated_at);
+`);
+
 // Backward-compat alias so any file that still imports { db } keeps working
 // during the transition. Remove this once all routes are updated.
 export const db = appDb;

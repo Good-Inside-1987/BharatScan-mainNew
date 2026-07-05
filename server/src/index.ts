@@ -68,7 +68,11 @@ app.get("/api/market/status", (_req, res) => {
 if (process.env.NODE_ENV === "production") {
   const distPath = path.resolve(__dirname, "../../artifacts/bharatscan/dist/public");
   app.use(express.static(distPath));
-  app.get("*", (_req, res) => {
+  app.get("*", (req, res) => {
+    if (req.path.startsWith("/api")) {
+      res.status(404).json({ error: "API route not found" });
+      return;
+    }
     res.sendFile(path.join(distPath, "index.html"));
   });
 }
