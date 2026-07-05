@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import {
   Plus, Minus, Trash2, BarChart2, Layers,
   TrendingUp, TrendingDown, Zap, Database, ChevronLeft, ChevronRight,
-  Clock, ChevronDown, LogOut, Check, X,
+  Clock, ChevronDown, LogOut, Check, X, RotateCcw,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useData } from "@/context/DataContext";
@@ -1300,6 +1300,21 @@ export default function OptionsSimulator() {
                 </optgroup>
               )}
             </select>
+
+            <button
+              type="button"
+              onClick={clearLegs}
+              disabled={!legs.length}
+              title="Reset all positions"
+              className={`ml-auto flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold border transition-colors shrink-0 ${
+                legs.length
+                  ? "text-amber-400/80 hover:text-amber-400 bg-amber-400/10 hover:bg-amber-400/20 border-amber-400/20 hover:border-amber-400/40 cursor-pointer"
+                  : "text-muted-foreground/40 bg-muted/10 border-border/30 cursor-not-allowed"
+              }`}
+            >
+              <RotateCcw className="h-2.5 w-2.5" />
+              Reset
+            </button>
           </div>
 
           {/* Expiry tabs with left/right arrows */}
@@ -1534,18 +1549,6 @@ export default function OptionsSimulator() {
                 <Icon className="h-3.5 w-3.5" />{label}
               </button>
             ))}
-            <button
-              type="button"
-              onClick={clearLegs}
-              disabled={!legs.length}
-              className={`ml-auto flex items-center gap-1 text-[10px] transition-colors px-2 py-1 rounded border ${
-                legs.length
-                  ? "text-muted-foreground/60 hover:text-red-400 border-border/40 hover:border-red-500/40 cursor-pointer"
-                  : "text-muted-foreground/30 border-border/20 cursor-not-allowed"
-              }`}
-            >
-              <Trash2 className="h-3 w-3" />Reset
-            </button>
           </div>
 
           {/* ── Payoff ── */}
