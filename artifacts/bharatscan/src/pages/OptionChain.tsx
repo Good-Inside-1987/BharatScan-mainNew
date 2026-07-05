@@ -621,6 +621,31 @@ export default function OptionChainTab() {
 
   function isGreekView() { return viewMode === "greeks"; }
 
+  // ── Side width: sum of all visible column px widths (same formula header + rows) ──
+  const centerWidth = vis("iv") ? 96 : 60;
+  const sideWidth = useMemo(() => {
+    let w = 44 + 56 + 52; // OI-lakh(44) + OI-bar(56) + LTP(52) — always visible
+    if (s.ltpChangePct)  w += 44;
+    if (s.ltpChange)     w += 44;
+    if (s.breakeven)     w += 48;
+    if (s.breakevenPct)  w += 48;
+    if (s.timeValue)     w += 44;
+    if (s.intrinsicSpot) w += 44;
+    if (s.intrinsicFut)  w += 44;
+    if (s.bidOffer)      w += 72; // bid(36) + offer(36)
+    if (s.oiChangePct)   w += 44;
+    if (s.oiChange)      w += 48;
+    if (s.volume)        w += 48;
+    if (s.pop)           w += 36;
+    if (s.pcr)           w += 36;
+    const sg = viewMode === "all" || viewMode === "greeks";
+    if (sg && s.delta) w += 48;
+    if (sg && s.theta) w += 40;
+    if (sg && s.vega)  w += 40;
+    if (sg && s.gamma) w += 48;
+    return w;
+  }, [s, viewMode]);
+
   // ── LTP value (per-lot adjusted) ────────────────────────────────────────
   function adjLTP(ltp: number) {
     return perLot ? ltp * lotSize : ltp;
@@ -782,78 +807,67 @@ export default function OptionChainTab() {
             <div className="sticky top-0 z-10 bg-[#0d1117] border-b border-border">
               {/* Group header: CALLS | center | PUTS */}
               <div className="flex text-[9px] font-black uppercase tracking-widest">
-                <div className="flex-1 text-center py-1 text-red-400 bg-red-500/5 border-r border-border/30">CALLS</div>
-                <div className="shrink-0 text-center py-1 text-foreground/60 border-r border-border/30"
-                  style={{ minWidth: vis("iv") ? 96 : 60 }}>
-                  &nbsp;
-                </div>
-                <div className="flex-1 text-center py-1 text-emerald-400 bg-emerald-500/5">PUTS</div>
+                <div className="shrink-0 text-center py-1 text-red-400 bg-red-500/5 border-r border-border/30" style={{ width: sideWidth }}>CALLS</div>
+                <div className="shrink-0 text-center py-1 text-foreground/60 border-r border-border/30" style={{ width: centerWidth }}>&nbsp;</div>
+                <div className="shrink-0 text-center py-1 text-emerald-400 bg-emerald-500/5" style={{ width: sideWidth }}>PUTS</div>
               </div>
 
               {/* Column headers */}
               <div className="flex text-[8px] uppercase tracking-wide text-muted-foreground/60 font-semibold border-b border-border/30">
                 {/* CALLS side — right-aligned, rightmost = LTP (closest to center) */}
-                <div className="flex flex-1 justify-end">
-                  {isGreekView() && vis("gamma") && <div className="px-1.5 py-1 text-right min-w-[48px]">Gamma</div>}
-                  {isGreekView() && vis("vega")  && <div className="px-1.5 py-1 text-right min-w-[40px]">Vega</div>}
-                  {isGreekView() && vis("theta") && <div className="px-1.5 py-1 text-right min-w-[40px]">Theta</div>}
-                  {isGreekView() && vis("delta") && <div className="px-1.5 py-1 text-right min-w-[48px]">Delta</div>}
-                  {viewMode === "all" && vis("gamma") && <div className="px-1.5 py-1 text-right min-w-[48px]">Gamma</div>}
-                  {viewMode === "all" && vis("vega")  && <div className="px-1.5 py-1 text-right min-w-[40px]">Vega</div>}
-                  {viewMode === "all" && vis("theta") && <div className="px-1.5 py-1 text-right min-w-[40px]">Theta</div>}
-                  {viewMode === "all" && vis("delta") && <div className="px-1.5 py-1 text-right min-w-[48px]">Delta</div>}
-                  {vis("pcr")          && <div className="px-1.5 py-1 text-right min-w-[36px]">PCR</div>}
-                  {vis("pop")          && <div className="px-1.5 py-1 text-right min-w-[36px]">POP</div>}
-                  {vis("volume")       && <div className="px-1.5 py-1 text-right min-w-[48px]">Vol</div>}
-                  {vis("oiChange")     && <div className="px-1.5 py-1 text-right min-w-[48px]">OI Chg</div>}
-                  {vis("oiChangePct")  && <div className="px-1.5 py-1 text-right min-w-[44px]">OI Chg%</div>}
-                                          <div className="px-1.5 py-1 text-right min-w-[44px]">OI-lakh</div>
-                                          <div className="px-1.5 py-1 text-right min-w-[56px]">Call OI</div>
-                  {vis("bidOffer")     && <div className="px-1.5 py-1 text-right min-w-[36px]">Bid</div>}
-                  {vis("bidOffer")     && <div className="px-1.5 py-1 text-right min-w-[36px]">Offer</div>}
-                  {vis("intrinsicFut") && <div className="px-1.5 py-1 text-right min-w-[44px]">Int F</div>}
-                  {vis("intrinsicSpot")&& <div className="px-1.5 py-1 text-right min-w-[44px]">Int S</div>}
-                  {vis("timeValue")    && <div className="px-1.5 py-1 text-right min-w-[44px]">TV</div>}
-                  {vis("breakevenPct") && <div className="px-1.5 py-1 text-right min-w-[48px]">BEP%</div>}
-                  {vis("breakeven")    && <div className="px-1.5 py-1 text-right min-w-[48px]">BE</div>}
-                  {vis("ltpChange")    && <div className="px-1.5 py-1 text-right min-w-[44px]">LTP Chg</div>}
-                  {vis("ltpChangePct") && <div className="px-1.5 py-1 text-right min-w-[44px]">LTP%</div>}
-                                          <div className="px-2 py-1 text-right min-w-[52px]">LTP</div>
+                <div className="flex shrink-0 justify-end" style={{ width: sideWidth }}>
+                  {(isGreekView() || viewMode === "all") && vis("gamma") && <div className="px-1.5 py-1 text-right w-[48px] shrink-0">Gamma</div>}
+                  {(isGreekView() || viewMode === "all") && vis("vega")  && <div className="px-1.5 py-1 text-right w-[40px] shrink-0">Vega</div>}
+                  {(isGreekView() || viewMode === "all") && vis("theta") && <div className="px-1.5 py-1 text-right w-[40px] shrink-0">Theta</div>}
+                  {(isGreekView() || viewMode === "all") && vis("delta") && <div className="px-1.5 py-1 text-right w-[48px] shrink-0">Delta</div>}
+                  {vis("pcr")          && <div className="px-1.5 py-1 text-right w-[36px] shrink-0">PCR</div>}
+                  {vis("pop")          && <div className="px-1.5 py-1 text-right w-[36px] shrink-0">POP</div>}
+                  {vis("volume")       && <div className="px-1.5 py-1 text-right w-[48px] shrink-0">Vol</div>}
+                  {vis("oiChange")     && <div className="px-1.5 py-1 text-right w-[48px] shrink-0">OI Chg</div>}
+                  {vis("oiChangePct")  && <div className="px-1.5 py-1 text-right w-[44px] shrink-0">OI Chg%</div>}
+                                          <div className="px-1.5 py-1 text-right w-[44px] shrink-0">OI-lakh</div>
+                                          <div className="px-1.5 py-1 text-right w-[56px] shrink-0">Call OI</div>
+                  {vis("bidOffer")     && <div className="px-1.5 py-1 text-right w-[36px] shrink-0">Bid</div>}
+                  {vis("bidOffer")     && <div className="px-1.5 py-1 text-right w-[36px] shrink-0">Offer</div>}
+                  {vis("intrinsicFut") && <div className="px-1.5 py-1 text-right w-[44px] shrink-0">Int F</div>}
+                  {vis("intrinsicSpot")&& <div className="px-1.5 py-1 text-right w-[44px] shrink-0">Int S</div>}
+                  {vis("timeValue")    && <div className="px-1.5 py-1 text-right w-[44px] shrink-0">TV</div>}
+                  {vis("breakevenPct") && <div className="px-1.5 py-1 text-right w-[48px] shrink-0">BEP%</div>}
+                  {vis("breakeven")    && <div className="px-1.5 py-1 text-right w-[48px] shrink-0">BE</div>}
+                  {vis("ltpChange")    && <div className="px-1.5 py-1 text-right w-[44px] shrink-0">LTP Chg</div>}
+                  {vis("ltpChangePct") && <div className="px-1.5 py-1 text-right w-[44px] shrink-0">LTP%</div>}
+                                          <div className="px-2 py-1 text-right w-[52px] shrink-0">LTP</div>
                 </div>
 
                 {/* Center */}
-                <div className="shrink-0 flex items-center border-x border-border/40" style={{ minWidth: vis("iv") ? 96 : 60 }}>
-                  <div className="flex-1 text-center py-1 min-w-[60px]">Strike</div>
-                  {vis("iv") && <div className="text-center py-1 min-w-[36px]">IV</div>}
+                <div className="shrink-0 flex items-center border-x border-border/40" style={{ width: centerWidth }}>
+                  <div className="text-center py-1 w-[60px] shrink-0">Strike</div>
+                  {vis("iv") && <div className="text-center py-1 w-[36px] shrink-0">IV</div>}
                 </div>
 
                 {/* PUTS side — left-aligned, leftmost = LTP */}
-                <div className="flex flex-1">
-                                          <div className="px-2 py-1 text-left min-w-[52px]">LTP</div>
-                  {vis("ltpChangePct") && <div className="px-1.5 py-1 text-left min-w-[44px]">LTP%</div>}
-                  {vis("ltpChange")    && <div className="px-1.5 py-1 text-left min-w-[44px]">LTP Chg</div>}
-                  {vis("breakeven")    && <div className="px-1.5 py-1 text-left min-w-[48px]">BE</div>}
-                  {vis("breakevenPct") && <div className="px-1.5 py-1 text-left min-w-[48px]">BEP%</div>}
-                  {vis("timeValue")    && <div className="px-1.5 py-1 text-left min-w-[44px]">TV</div>}
-                  {vis("intrinsicSpot")&& <div className="px-1.5 py-1 text-left min-w-[44px]">Int S</div>}
-                  {vis("intrinsicFut") && <div className="px-1.5 py-1 text-left min-w-[44px]">Int F</div>}
-                  {vis("bidOffer")     && <div className="px-1.5 py-1 text-left min-w-[36px]">Offer</div>}
-                  {vis("bidOffer")     && <div className="px-1.5 py-1 text-left min-w-[36px]">Bid</div>}
-                                          <div className="px-1.5 py-1 text-left min-w-[56px]">Put OI</div>
-                                          <div className="px-1.5 py-1 text-left min-w-[44px]">OI-lakh</div>
-                  {vis("oiChangePct")  && <div className="px-1.5 py-1 text-left min-w-[44px]">OI Chg%</div>}
-                  {vis("oiChange")     && <div className="px-1.5 py-1 text-left min-w-[48px]">OI Chg</div>}
-                  {vis("volume")       && <div className="px-1.5 py-1 text-left min-w-[48px]">Vol</div>}
-                  {vis("pop")          && <div className="px-1.5 py-1 text-left min-w-[36px]">POP</div>}
-                  {vis("pcr")          && <div className="px-1.5 py-1 text-left min-w-[36px]">PCR</div>}
-                  {viewMode === "all" && vis("delta") && <div className="px-1.5 py-1 text-left min-w-[48px]">Delta</div>}
-                  {viewMode === "all" && vis("theta") && <div className="px-1.5 py-1 text-left min-w-[40px]">Theta</div>}
-                  {viewMode === "all" && vis("vega")  && <div className="px-1.5 py-1 text-left min-w-[40px]">Vega</div>}
-                  {viewMode === "all" && vis("gamma") && <div className="px-1.5 py-1 text-left min-w-[48px]">Gamma</div>}
-                  {isGreekView() && vis("delta") && <div className="px-1.5 py-1 text-left min-w-[48px]">Delta</div>}
-                  {isGreekView() && vis("theta") && <div className="px-1.5 py-1 text-left min-w-[40px]">Theta</div>}
-                  {isGreekView() && vis("vega")  && <div className="px-1.5 py-1 text-left min-w-[40px]">Vega</div>}
-                  {isGreekView() && vis("gamma") && <div className="px-1.5 py-1 text-left min-w-[48px]">Gamma</div>}
+                <div className="flex shrink-0" style={{ width: sideWidth }}>
+                                          <div className="px-2 py-1 text-left w-[52px] shrink-0">LTP</div>
+                  {vis("ltpChangePct") && <div className="px-1.5 py-1 text-left w-[44px] shrink-0">LTP%</div>}
+                  {vis("ltpChange")    && <div className="px-1.5 py-1 text-left w-[44px] shrink-0">LTP Chg</div>}
+                  {vis("breakeven")    && <div className="px-1.5 py-1 text-left w-[48px] shrink-0">BE</div>}
+                  {vis("breakevenPct") && <div className="px-1.5 py-1 text-left w-[48px] shrink-0">BEP%</div>}
+                  {vis("timeValue")    && <div className="px-1.5 py-1 text-left w-[44px] shrink-0">TV</div>}
+                  {vis("intrinsicSpot")&& <div className="px-1.5 py-1 text-left w-[44px] shrink-0">Int S</div>}
+                  {vis("intrinsicFut") && <div className="px-1.5 py-1 text-left w-[44px] shrink-0">Int F</div>}
+                  {vis("bidOffer")     && <div className="px-1.5 py-1 text-left w-[36px] shrink-0">Offer</div>}
+                  {vis("bidOffer")     && <div className="px-1.5 py-1 text-left w-[36px] shrink-0">Bid</div>}
+                                          <div className="px-1.5 py-1 text-left w-[56px] shrink-0">Put OI</div>
+                                          <div className="px-1.5 py-1 text-left w-[44px] shrink-0">OI-lakh</div>
+                  {vis("oiChangePct")  && <div className="px-1.5 py-1 text-left w-[44px] shrink-0">OI Chg%</div>}
+                  {vis("oiChange")     && <div className="px-1.5 py-1 text-left w-[48px] shrink-0">OI Chg</div>}
+                  {vis("volume")       && <div className="px-1.5 py-1 text-left w-[48px] shrink-0">Vol</div>}
+                  {vis("pop")          && <div className="px-1.5 py-1 text-left w-[36px] shrink-0">POP</div>}
+                  {vis("pcr")          && <div className="px-1.5 py-1 text-left w-[36px] shrink-0">PCR</div>}
+                  {(isGreekView() || viewMode === "all") && vis("delta") && <div className="px-1.5 py-1 text-left w-[48px] shrink-0">Delta</div>}
+                  {(isGreekView() || viewMode === "all") && vis("theta") && <div className="px-1.5 py-1 text-left w-[40px] shrink-0">Theta</div>}
+                  {(isGreekView() || viewMode === "all") && vis("vega")  && <div className="px-1.5 py-1 text-left w-[40px] shrink-0">Vega</div>}
+                  {(isGreekView() || viewMode === "all") && vis("gamma") && <div className="px-1.5 py-1 text-left w-[48px] shrink-0">Gamma</div>}
                 </div>
               </div>
             </div>
@@ -889,24 +903,20 @@ export default function OptionChainTab() {
                     className={`flex text-[10px] tabular-nums border-b ${isATM ? "border-blue-400/30" : "border-border/15"}`}
                   >
                     {/* ── CALLS side ─────────────────────────────── */}
-                    <div className={`flex flex-1 justify-end items-center ${ceBg}`}>
-                      {isGreekView() && vis("gamma") && <div className="px-1.5 py-1.5 text-right min-w-[48px] text-muted-foreground/80">{fmtNum(row.ceGamma, 4)}</div>}
-                      {isGreekView() && vis("vega")  && <div className="px-1.5 py-1.5 text-right min-w-[40px] text-muted-foreground/80">{fmtNum(row.ceVega)}</div>}
-                      {isGreekView() && vis("theta") && <div className="px-1.5 py-1.5 text-right min-w-[40px] text-amber-400/80">{fmtNum(row.ceTheta)}</div>}
-                      {isGreekView() && vis("delta") && <div className={`px-1.5 py-1.5 text-right min-w-[48px] font-semibold ${row.ceDelta > 0.5 ? "text-emerald-400" : "text-foreground/70"}`}>{fmtNum(row.ceDelta, 4)}</div>}
-                      {viewMode === "all" && vis("gamma") && <div className="px-1.5 py-1.5 text-right min-w-[48px] text-muted-foreground/80">{fmtNum(row.ceGamma, 4)}</div>}
-                      {viewMode === "all" && vis("vega")  && <div className="px-1.5 py-1.5 text-right min-w-[40px] text-muted-foreground/80">{fmtNum(row.ceVega)}</div>}
-                      {viewMode === "all" && vis("theta") && <div className="px-1.5 py-1.5 text-right min-w-[40px] text-amber-400/80">{fmtNum(row.ceTheta)}</div>}
-                      {viewMode === "all" && vis("delta") && <div className={`px-1.5 py-1.5 text-right min-w-[48px] font-semibold ${row.ceDelta > 0.5 ? "text-emerald-400" : "text-foreground/70"}`}>{fmtNum(row.ceDelta, 4)}</div>}
-                      {vis("pcr")          && <div className="px-1.5 py-1.5 text-right min-w-[36px] text-cyan-400/80">{fmtPCR(row.ceOI, row.peOI)}</div>}
-                      {vis("pop")          && <div className="px-1.5 py-1.5 text-right min-w-[36px] text-violet-400/80">{row.cePOP > 0 ? `${row.cePOP}%` : "—"}</div>}
-                      {vis("volume")       && <div className="px-1.5 py-1.5 text-right min-w-[48px] text-muted-foreground/60"><M v={row.ceVolume > 0 ? fmtLakh(row.ceVolume) : "—"} /></div>}
-                      {vis("oiChange")     && <div className={`px-1.5 py-1.5 text-right min-w-[48px] ${row.ceChangeInOI >= 0 ? "text-red-400/70" : "text-emerald-400/70"}`}><M v={isFinite(row.ceChangeInOI) && row.ceChangeInOI !== 0 ? fmtLakh(row.ceChangeInOI) : "—"} /></div>}
-                      {vis("oiChangePct")  && <div className={`px-1.5 py-1.5 text-right min-w-[44px] font-semibold ${isFinite(row.ceOIChgPct) ? (row.ceOIChgPct >= 0 ? "text-red-400" : "text-emerald-400") : ""}`}><M v={isFinite(row.ceOIChgPct) ? fmtPct(row.ceOIChgPct) : "—"} /></div>}
+                    <div className={`flex shrink-0 justify-end items-center ${ceBg}`} style={{ width: sideWidth }}>
+                      {(isGreekView() || viewMode === "all") && vis("gamma") && <div className="px-1.5 py-1.5 text-right w-[48px] shrink-0 text-muted-foreground/80">{fmtNum(row.ceGamma, 4)}</div>}
+                      {(isGreekView() || viewMode === "all") && vis("vega")  && <div className="px-1.5 py-1.5 text-right w-[40px] shrink-0 text-muted-foreground/80">{fmtNum(row.ceVega)}</div>}
+                      {(isGreekView() || viewMode === "all") && vis("theta") && <div className="px-1.5 py-1.5 text-right w-[40px] shrink-0 text-amber-400/80">{fmtNum(row.ceTheta)}</div>}
+                      {(isGreekView() || viewMode === "all") && vis("delta") && <div className={`px-1.5 py-1.5 text-right w-[48px] shrink-0 font-semibold ${row.ceDelta > 0.5 ? "text-emerald-400" : "text-foreground/70"}`}>{fmtNum(row.ceDelta, 4)}</div>}
+                      {vis("pcr")          && <div className="px-1.5 py-1.5 text-right w-[36px] shrink-0 text-cyan-400/80">{fmtPCR(row.ceOI, row.peOI)}</div>}
+                      {vis("pop")          && <div className="px-1.5 py-1.5 text-right w-[36px] shrink-0 text-violet-400/80">{row.cePOP > 0 ? `${row.cePOP}%` : "—"}</div>}
+                      {vis("volume")       && <div className="px-1.5 py-1.5 text-right w-[48px] shrink-0 text-muted-foreground/60"><M v={row.ceVolume > 0 ? fmtLakh(row.ceVolume) : "—"} /></div>}
+                      {vis("oiChange")     && <div className={`px-1.5 py-1.5 text-right w-[48px] shrink-0 ${row.ceChangeInOI >= 0 ? "text-red-400/70" : "text-emerald-400/70"}`}><M v={isFinite(row.ceChangeInOI) && row.ceChangeInOI !== 0 ? fmtLakh(row.ceChangeInOI) : "—"} /></div>}
+                      {vis("oiChangePct")  && <div className={`px-1.5 py-1.5 text-right w-[44px] shrink-0 font-semibold ${isFinite(row.ceOIChgPct) ? (row.ceOIChgPct >= 0 ? "text-red-400" : "text-emerald-400") : ""}`}><M v={isFinite(row.ceOIChgPct) ? fmtPct(row.ceOIChgPct) : "—"} /></div>}
                       {/* OI-lakh always */}
-                      <div className="px-1.5 py-1.5 text-right min-w-[44px] text-muted-foreground/60">{fmtLakh(row.ceOI)}</div>
+                      <div className="px-1.5 py-1.5 text-right w-[44px] shrink-0 text-muted-foreground/60">{fmtLakh(row.ceOI)}</div>
                       {/* OI bar (+ B/S overlay) */}
-                      <div className="relative px-1 py-1.5 min-w-[56px] flex flex-col justify-center gap-0.5">
+                      <div className="relative px-1 py-1.5 w-[56px] shrink-0 flex flex-col justify-center gap-0.5">
                         <OIHBar value={row.ceOI} max={maxOI} color="bg-red-500/70" align="right" />
                         {showBuySell && row.ce > 0 && (
                           <div className="absolute inset-0 flex items-center justify-center gap-1">
@@ -919,30 +929,29 @@ export default function OptionChainTab() {
                           </div>
                         )}
                       </div>
-                      {vis("bidOffer")     && <div className="px-1.5 py-1.5 text-right min-w-[36px] text-muted-foreground/50"><M v="—" /></div>}
-                      {vis("bidOffer")     && <div className="px-1.5 py-1.5 text-right min-w-[36px] text-muted-foreground/50"><M v="—" /></div>}
-                      {vis("intrinsicFut") && <div className="px-1.5 py-1.5 text-right min-w-[44px] text-muted-foreground/70"><M v={row.ceIntrinsicFut > 0 ? row.ceIntrinsicFut.toFixed(1) : "0.0"} /></div>}
-                      {vis("intrinsicSpot")&& <div className="px-1.5 py-1.5 text-right min-w-[44px] text-muted-foreground/70"><M v={row.ceIntrinsicSpot > 0 ? row.ceIntrinsicSpot.toFixed(1) : "0.0"} /></div>}
-                      {vis("timeValue")    && <div className="px-1.5 py-1.5 text-right min-w-[44px] text-sky-400/70"><M v={row.ceTimeValue > 0 ? row.ceTimeValue.toFixed(1) : "—"} /></div>}
-                      {vis("breakevenPct") && <div className={`px-1.5 py-1.5 text-right min-w-[48px] ${isFinite(row.ceBreakevenPct) ? "text-amber-400/80" : ""}`}><M v={isFinite(row.ceBreakevenPct) ? fmtPct(row.ceBreakevenPct) : "—"} /></div>}
-                      {vis("breakeven")    && <div className="px-1.5 py-1.5 text-right min-w-[48px] text-amber-400/80"><M v={row.ceBreakeven > 0 ? row.ceBreakeven.toFixed(0) : "—"} /></div>}
-                      {vis("ltpChange")    && <div className={`px-1.5 py-1.5 text-right min-w-[44px] font-semibold ${isFinite(ceLTPChg) ? (ceLTPChg >= 0 ? "text-emerald-400/80" : "text-red-400/80") : ""}`}><M v={isFinite(ceLTPChg) ? (ceLTPChg >= 0 ? "+" : "") + ceLTPChg.toFixed(2) : "—"} /></div>}
-                      {vis("ltpChangePct") && <div className={`px-1.5 py-1.5 text-right min-w-[44px] font-semibold ${isFinite(ceLTPChgPct) ? (ceLTPChgPct >= 0 ? "text-emerald-400/80" : "text-red-400/80") : ""}`}><M v={isFinite(ceLTPChgPct) ? fmtPct(ceLTPChgPct) : "—"} /></div>}
+                      {vis("bidOffer")     && <div className="px-1.5 py-1.5 text-right w-[36px] shrink-0 text-muted-foreground/50"><M v="—" /></div>}
+                      {vis("bidOffer")     && <div className="px-1.5 py-1.5 text-right w-[36px] shrink-0 text-muted-foreground/50"><M v="—" /></div>}
+                      {vis("intrinsicFut") && <div className="px-1.5 py-1.5 text-right w-[44px] shrink-0 text-muted-foreground/70"><M v={row.ceIntrinsicFut > 0 ? row.ceIntrinsicFut.toFixed(1) : "0.0"} /></div>}
+                      {vis("intrinsicSpot")&& <div className="px-1.5 py-1.5 text-right w-[44px] shrink-0 text-muted-foreground/70"><M v={row.ceIntrinsicSpot > 0 ? row.ceIntrinsicSpot.toFixed(1) : "0.0"} /></div>}
+                      {vis("timeValue")    && <div className="px-1.5 py-1.5 text-right w-[44px] shrink-0 text-sky-400/70"><M v={row.ceTimeValue > 0 ? row.ceTimeValue.toFixed(1) : "—"} /></div>}
+                      {vis("breakevenPct") && <div className={`px-1.5 py-1.5 text-right w-[48px] shrink-0 ${isFinite(row.ceBreakevenPct) ? "text-amber-400/80" : ""}`}><M v={isFinite(row.ceBreakevenPct) ? fmtPct(row.ceBreakevenPct) : "—"} /></div>}
+                      {vis("breakeven")    && <div className="px-1.5 py-1.5 text-right w-[48px] shrink-0 text-amber-400/80"><M v={row.ceBreakeven > 0 ? row.ceBreakeven.toFixed(0) : "—"} /></div>}
+                      {vis("ltpChange")    && <div className={`px-1.5 py-1.5 text-right w-[44px] shrink-0 font-semibold ${isFinite(ceLTPChg) ? (ceLTPChg >= 0 ? "text-emerald-400/80" : "text-red-400/80") : ""}`}><M v={isFinite(ceLTPChg) ? (ceLTPChg >= 0 ? "+" : "") + ceLTPChg.toFixed(2) : "—"} /></div>}
+                      {vis("ltpChangePct") && <div className={`px-1.5 py-1.5 text-right w-[44px] shrink-0 font-semibold ${isFinite(ceLTPChgPct) ? (ceLTPChgPct >= 0 ? "text-emerald-400/80" : "text-red-400/80") : ""}`}><M v={isFinite(ceLTPChgPct) ? fmtPct(ceLTPChgPct) : "—"} /></div>}
                       {/* LTP always */}
-                      <div className={`px-2 py-1.5 text-right min-w-[52px] font-bold ${row.ce > 0 ? "text-foreground" : "text-foreground/30"}`}>
+                      <div className={`px-2 py-1.5 text-right w-[52px] shrink-0 font-bold ${row.ce > 0 ? "text-foreground" : "text-foreground/30"}`}>
                         {row.ce > 0 ? ceLTP.toFixed(1) : "—"}
                       </div>
                     </div>
 
                     {/* ── Center ─────────────────────────────────── */}
-                    <div className={`shrink-0 flex items-center border-x border-border/30 ${strikeBg}`}
-                      style={{ minWidth: vis("iv") ? 96 : 60 }}>
-                      <div className={`flex-1 text-center py-1.5 font-bold min-w-[60px] ${isATM ? "text-blue-300" : "text-foreground/80"}`}>
+                    <div className={`shrink-0 flex items-center border-x border-border/30 ${strikeBg}`} style={{ width: centerWidth }}>
+                      <div className={`text-center py-1.5 font-bold w-[60px] shrink-0 ${isATM ? "text-blue-300" : "text-foreground/80"}`}>
                         {isATM && <span className="text-[7px] text-blue-400 mr-0.5 font-black">★</span>}
                         {row.strike.toLocaleString("en-IN")}
                       </div>
                       {vis("iv") && (
-                        <div className="text-center py-1.5 min-w-[36px]">
+                        <div className="text-center py-1.5 w-[36px] shrink-0">
                           <span className="text-muted-foreground/70">
                             {row.ceIV > 0 ? row.ceIV.toFixed(1) : "—"}
                           </span>
@@ -956,22 +965,22 @@ export default function OptionChainTab() {
                     </div>
 
                     {/* ── PUTS side ──────────────────────────────── */}
-                    <div className={`flex flex-1 items-center ${peBg}`}>
+                    <div className={`flex shrink-0 items-center ${peBg}`} style={{ width: sideWidth }}>
                       {/* LTP always */}
-                      <div className={`px-2 py-1.5 text-left min-w-[52px] font-bold ${row.pe > 0 ? "text-foreground" : "text-foreground/30"}`}>
+                      <div className={`px-2 py-1.5 text-left w-[52px] shrink-0 font-bold ${row.pe > 0 ? "text-foreground" : "text-foreground/30"}`}>
                         {row.pe > 0 ? peLTP.toFixed(1) : "—"}
                       </div>
-                      {vis("ltpChangePct") && <div className={`px-1.5 py-1.5 text-left min-w-[44px] font-semibold ${isFinite(peLTPChgPct) ? (peLTPChgPct >= 0 ? "text-emerald-400/80" : "text-red-400/80") : ""}`}><M v={isFinite(peLTPChgPct) ? fmtPct(peLTPChgPct) : "—"} /></div>}
-                      {vis("ltpChange")    && <div className={`px-1.5 py-1.5 text-left min-w-[44px] font-semibold ${isFinite(peLTPChg) ? (peLTPChg >= 0 ? "text-emerald-400/80" : "text-red-400/80") : ""}`}><M v={isFinite(peLTPChg) ? (peLTPChg >= 0 ? "+" : "") + peLTPChg.toFixed(2) : "—"} /></div>}
-                      {vis("breakeven")    && <div className="px-1.5 py-1.5 text-left min-w-[48px] text-amber-400/80"><M v={row.peBreakeven > 0 ? row.peBreakeven.toFixed(0) : "—"} /></div>}
-                      {vis("breakevenPct") && <div className={`px-1.5 py-1.5 text-left min-w-[48px] ${isFinite(row.peBreakevenPct) ? "text-amber-400/80" : ""}`}><M v={isFinite(row.peBreakevenPct) ? fmtPct(row.peBreakevenPct) : "—"} /></div>}
-                      {vis("timeValue")    && <div className="px-1.5 py-1.5 text-left min-w-[44px] text-sky-400/70"><M v={row.peTimeValue > 0 ? row.peTimeValue.toFixed(1) : "—"} /></div>}
-                      {vis("intrinsicSpot")&& <div className="px-1.5 py-1.5 text-left min-w-[44px] text-muted-foreground/70"><M v={row.peIntrinsicSpot > 0 ? row.peIntrinsicSpot.toFixed(1) : "0.0"} /></div>}
-                      {vis("intrinsicFut") && <div className="px-1.5 py-1.5 text-left min-w-[44px] text-muted-foreground/70"><M v={row.peIntrinsicFut > 0 ? row.peIntrinsicFut.toFixed(1) : "0.0"} /></div>}
-                      {vis("bidOffer")     && <div className="px-1.5 py-1.5 text-left min-w-[36px] text-muted-foreground/50"><M v="—" /></div>}
-                      {vis("bidOffer")     && <div className="px-1.5 py-1.5 text-left min-w-[36px] text-muted-foreground/50"><M v="—" /></div>}
+                      {vis("ltpChangePct") && <div className={`px-1.5 py-1.5 text-left w-[44px] shrink-0 font-semibold ${isFinite(peLTPChgPct) ? (peLTPChgPct >= 0 ? "text-emerald-400/80" : "text-red-400/80") : ""}`}><M v={isFinite(peLTPChgPct) ? fmtPct(peLTPChgPct) : "—"} /></div>}
+                      {vis("ltpChange")    && <div className={`px-1.5 py-1.5 text-left w-[44px] shrink-0 font-semibold ${isFinite(peLTPChg) ? (peLTPChg >= 0 ? "text-emerald-400/80" : "text-red-400/80") : ""}`}><M v={isFinite(peLTPChg) ? (peLTPChg >= 0 ? "+" : "") + peLTPChg.toFixed(2) : "—"} /></div>}
+                      {vis("breakeven")    && <div className="px-1.5 py-1.5 text-left w-[48px] shrink-0 text-amber-400/80"><M v={row.peBreakeven > 0 ? row.peBreakeven.toFixed(0) : "—"} /></div>}
+                      {vis("breakevenPct") && <div className={`px-1.5 py-1.5 text-left w-[48px] shrink-0 ${isFinite(row.peBreakevenPct) ? "text-amber-400/80" : ""}`}><M v={isFinite(row.peBreakevenPct) ? fmtPct(row.peBreakevenPct) : "—"} /></div>}
+                      {vis("timeValue")    && <div className="px-1.5 py-1.5 text-left w-[44px] shrink-0 text-sky-400/70"><M v={row.peTimeValue > 0 ? row.peTimeValue.toFixed(1) : "—"} /></div>}
+                      {vis("intrinsicSpot")&& <div className="px-1.5 py-1.5 text-left w-[44px] shrink-0 text-muted-foreground/70"><M v={row.peIntrinsicSpot > 0 ? row.peIntrinsicSpot.toFixed(1) : "0.0"} /></div>}
+                      {vis("intrinsicFut") && <div className="px-1.5 py-1.5 text-left w-[44px] shrink-0 text-muted-foreground/70"><M v={row.peIntrinsicFut > 0 ? row.peIntrinsicFut.toFixed(1) : "0.0"} /></div>}
+                      {vis("bidOffer")     && <div className="px-1.5 py-1.5 text-left w-[36px] shrink-0 text-muted-foreground/50"><M v="—" /></div>}
+                      {vis("bidOffer")     && <div className="px-1.5 py-1.5 text-left w-[36px] shrink-0 text-muted-foreground/50"><M v="—" /></div>}
                       {/* Put OI bar (+ B/S overlay) */}
-                      <div className="relative px-1 py-1.5 min-w-[56px] flex flex-col justify-center gap-0.5">
+                      <div className="relative px-1 py-1.5 w-[56px] shrink-0 flex flex-col justify-center gap-0.5">
                         <OIHBar value={row.peOI} max={maxOI} color="bg-emerald-500/70" align="left" />
                         {showBuySell && row.pe > 0 && (
                           <div className="absolute inset-0 flex items-center justify-center gap-1">
@@ -985,20 +994,16 @@ export default function OptionChainTab() {
                         )}
                       </div>
                       {/* OI-lakh always */}
-                      <div className="px-1.5 py-1.5 text-left min-w-[44px] text-muted-foreground/60">{fmtLakh(row.peOI)}</div>
-                      {vis("oiChangePct")  && <div className={`px-1.5 py-1.5 text-left min-w-[44px] font-semibold ${isFinite(row.peOIChgPct) ? (row.peOIChgPct >= 0 ? "text-emerald-400" : "text-red-400") : ""}`}><M v={isFinite(row.peOIChgPct) ? fmtPct(row.peOIChgPct) : "—"} /></div>}
-                      {vis("oiChange")     && <div className={`px-1.5 py-1.5 text-left min-w-[48px] ${row.peChangeInOI >= 0 ? "text-emerald-400/70" : "text-red-400/70"}`}><M v={isFinite(row.peChangeInOI) && row.peChangeInOI !== 0 ? fmtLakh(row.peChangeInOI) : "—"} /></div>}
-                      {vis("volume")       && <div className="px-1.5 py-1.5 text-left min-w-[48px] text-muted-foreground/60"><M v={row.peVolume > 0 ? fmtLakh(row.peVolume) : "—"} /></div>}
-                      {vis("pop")          && <div className="px-1.5 py-1.5 text-left min-w-[36px] text-violet-400/80">{row.pePOP > 0 ? `${row.pePOP}%` : "—"}</div>}
-                      {vis("pcr")          && <div className="px-1.5 py-1.5 text-left min-w-[36px] text-cyan-400/80">{fmtPCR(row.ceOI, row.peOI)}</div>}
-                      {viewMode === "all" && vis("delta") && <div className={`px-1.5 py-1.5 text-left min-w-[48px] font-semibold ${Math.abs(row.peDelta) > 0.5 ? "text-red-400" : "text-foreground/70"}`}>{fmtNum(row.peDelta, 4)}</div>}
-                      {viewMode === "all" && vis("theta") && <div className="px-1.5 py-1.5 text-left min-w-[40px] text-amber-400/80">{fmtNum(row.peTheta)}</div>}
-                      {viewMode === "all" && vis("vega")  && <div className="px-1.5 py-1.5 text-left min-w-[40px] text-muted-foreground/80">{fmtNum(row.peVega)}</div>}
-                      {viewMode === "all" && vis("gamma") && <div className="px-1.5 py-1.5 text-left min-w-[48px] text-muted-foreground/80">{fmtNum(row.peGamma, 4)}</div>}
-                      {isGreekView() && vis("delta") && <div className={`px-1.5 py-1.5 text-left min-w-[48px] font-semibold ${Math.abs(row.peDelta) > 0.5 ? "text-red-400" : "text-foreground/70"}`}>{fmtNum(row.peDelta, 4)}</div>}
-                      {isGreekView() && vis("theta") && <div className="px-1.5 py-1.5 text-left min-w-[40px] text-amber-400/80">{fmtNum(row.peTheta)}</div>}
-                      {isGreekView() && vis("vega")  && <div className="px-1.5 py-1.5 text-left min-w-[40px] text-muted-foreground/80">{fmtNum(row.peVega)}</div>}
-                      {isGreekView() && vis("gamma") && <div className="px-1.5 py-1.5 text-left min-w-[48px] text-muted-foreground/80">{fmtNum(row.peGamma, 4)}</div>}
+                      <div className="px-1.5 py-1.5 text-left w-[44px] shrink-0 text-muted-foreground/60">{fmtLakh(row.peOI)}</div>
+                      {vis("oiChangePct")  && <div className={`px-1.5 py-1.5 text-left w-[44px] shrink-0 font-semibold ${isFinite(row.peOIChgPct) ? (row.peOIChgPct >= 0 ? "text-emerald-400" : "text-red-400") : ""}`}><M v={isFinite(row.peOIChgPct) ? fmtPct(row.peOIChgPct) : "—"} /></div>}
+                      {vis("oiChange")     && <div className={`px-1.5 py-1.5 text-left w-[48px] shrink-0 ${row.peChangeInOI >= 0 ? "text-emerald-400/70" : "text-red-400/70"}`}><M v={isFinite(row.peChangeInOI) && row.peChangeInOI !== 0 ? fmtLakh(row.peChangeInOI) : "—"} /></div>}
+                      {vis("volume")       && <div className="px-1.5 py-1.5 text-left w-[48px] shrink-0 text-muted-foreground/60"><M v={row.peVolume > 0 ? fmtLakh(row.peVolume) : "—"} /></div>}
+                      {vis("pop")          && <div className="px-1.5 py-1.5 text-left w-[36px] shrink-0 text-violet-400/80">{row.pePOP > 0 ? `${row.pePOP}%` : "—"}</div>}
+                      {vis("pcr")          && <div className="px-1.5 py-1.5 text-left w-[36px] shrink-0 text-cyan-400/80">{fmtPCR(row.ceOI, row.peOI)}</div>}
+                      {(isGreekView() || viewMode === "all") && vis("delta") && <div className={`px-1.5 py-1.5 text-left w-[48px] shrink-0 font-semibold ${Math.abs(row.peDelta) > 0.5 ? "text-red-400" : "text-foreground/70"}`}>{fmtNum(row.peDelta, 4)}</div>}
+                      {(isGreekView() || viewMode === "all") && vis("theta") && <div className="px-1.5 py-1.5 text-left w-[40px] shrink-0 text-amber-400/80">{fmtNum(row.peTheta)}</div>}
+                      {(isGreekView() || viewMode === "all") && vis("vega")  && <div className="px-1.5 py-1.5 text-left w-[40px] shrink-0 text-muted-foreground/80">{fmtNum(row.peVega)}</div>}
+                      {(isGreekView() || viewMode === "all") && vis("gamma") && <div className="px-1.5 py-1.5 text-left w-[48px] shrink-0 text-muted-foreground/80">{fmtNum(row.peGamma, 4)}</div>}
                     </div>
                   </div>
                 );
