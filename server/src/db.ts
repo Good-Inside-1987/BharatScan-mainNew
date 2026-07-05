@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import path from "path";
 import fs from "fs";
 import { runMigration } from "./db/migrate.js";
+import { initAppDb } from "./db/app-schema.js";
 import { initMarketDb } from "./db/market-schema.js";
 import { initLiveDb } from "./db/live-schema.js";
 import { config } from "./config/environment.js";
@@ -17,6 +18,9 @@ runMigration(config.dbDir);
 export const appDb = new DatabaseSync(path.join(config.dbDir, "app.db"));
 appDb.exec("PRAGMA journal_mode=WAL");
 appDb.exec("PRAGMA foreign_keys=ON");
+
+// Step 2a: Initialize app.db schema (idempotent — CREATE TABLE IF NOT EXISTS)
+initAppDb(appDb);
 
 // Step 3: Open market.db (price data — large, re-fetchable from Angel)
 export const marketDb = new DatabaseSync(path.join(config.dbDir, "market.db"));
