@@ -1534,15 +1534,18 @@ export default function OptionsSimulator() {
                 <Icon className="h-3.5 w-3.5" />{label}
               </button>
             ))}
-            {legs.length > 0 && (
-              <button
-                type="button"
-                onClick={clearLegs}
-                className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-border/40 hover:border-red-500/40"
-              >
-                <Trash2 className="h-3 w-3" />Reset
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={clearLegs}
+              disabled={!legs.length}
+              className={`ml-auto flex items-center gap-1 text-[10px] transition-colors px-2 py-1 rounded border ${
+                legs.length
+                  ? "text-muted-foreground/60 hover:text-red-400 border-border/40 hover:border-red-500/40 cursor-pointer"
+                  : "text-muted-foreground/30 border-border/20 cursor-not-allowed"
+              }`}
+            >
+              <Trash2 className="h-3 w-3" />Reset
+            </button>
           </div>
 
           {/* ── Payoff ── */}
