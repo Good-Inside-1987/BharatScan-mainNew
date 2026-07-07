@@ -104,5 +104,8 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
     console.error(err.stack);
   }
   if (res.headersSent) return;
-  res.status(500).json({ error: err.message || "Internal server error" });
+  const message = process.env.NODE_ENV === "production"
+    ? "Internal server error"
+    : err.message || "Internal server error";
+  res.status(500).json({ error: message });
 });
