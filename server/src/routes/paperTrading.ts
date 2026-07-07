@@ -109,9 +109,16 @@ router.post("/accounts/:id/reset", (req: Request, res: Response) => {
   const existing = db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow | undefined;
   if (!existing) { res.status(404).json({ error: "Not found" }); return; }
   const now = new Date().toISOString();
-  db.prepare("DELETE FROM paper_positions WHERE account_id = ?").run(req.params.id);
-  db.prepare("DELETE FROM paper_trades WHERE account_id = ?").run(req.params.id);
-  db.prepare("UPDATE paper_accounts SET cash_balance = starting_balance, updated_at = ? WHERE id = ?").run(now, req.params.id);
+  try {
+    db.exec("BEGIN");
+    db.prepare("DELETE FROM paper_positions WHERE account_id = ?").run(req.params.id);
+    db.prepare("DELETE FROM paper_trades WHERE account_id = ?").run(req.params.id);
+    db.prepare("UPDATE paper_accounts SET cash_balance = starting_balance, updated_at = ? WHERE id = ?").run(now, req.params.id);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
   res.json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow), ...computeAccountStats(req.params.id) });
 });
 
@@ -167,16 +174,23 @@ router.post("/accounts/:id/positions", (req: Request, res: Response) => {
 
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO paper_positions
-      (id, account_id, instrument_type, symbol, underlying, strike, option_type, expiry, side, qty, lot_size, entry_price, entry_date, margin_blocked, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)`
-  ).run(
-    id, req.params.id, instrument_type, symbol.trim().toUpperCase(),
-    underlying?.trim().toUpperCase() || null, strike ?? null, option_type ?? null, expiry ?? null,
-    side, Number(qty), effectiveLotSize, Number(entry_price), entry_date, notional, now, now
-  );
-  db.prepare("UPDATE paper_accounts SET cash_balance = cash_balance - ?, updated_at = ? WHERE id = ?").run(notional, now, req.params.id);
+  try {
+    db.exec("BEGIN");
+    db.prepare(
+      `INSERT INTO paper_positions
+        (id, account_id, instrument_type, symbol, underlying, strike, option_type, expiry, side, qty, lot_size, entry_price, entry_date, margin_blocked, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)`
+    ).run(
+      id, req.params.id, instrument_type, symbol.trim().toUpperCase(),
+      underlying?.trim().toUpperCase() || null, strike ?? null, option_type ?? null, expiry ?? null,
+      side, Number(qty), effectiveLotSize, Number(entry_price), entry_date, notional, now, now
+    );
+    db.prepare("UPDATE paper_accounts SET cash_balance = cash_balance - ?, updated_at = ? WHERE id = ?").run(notional, now, req.params.id);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
 
   res.status(201).json(db.prepare("SELECT * FROM paper_positions WHERE id = ?").get(id) as unknown as PaperPositionRow);
 });
@@ -201,28 +215,37 @@ router.post("/accounts/:id/positions/:posId/close", (req: Request, res: Response
 
   const now = new Date().toISOString();
   const tradeId = crypto.randomUUID();
-  db.prepare(
-    `INSERT INTO paper_trades
-      (id, account_id, position_id, instrument_type, symbol, underlying, strike, option_type, expiry, side, qty, lot_size, entry_price, exit_price, entry_date, exit_date, realized_pnl, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    tradeId, position.account_id, position.id, position.instrument_type, position.symbol,
-    position.underlying, position.strike, position.option_type, position.expiry,
-    position.side, closedQty, position.lot_size, position.entry_price, Number(exit_price),
-    position.entry_date, exit_date, realizedPnl, now
-  );
-
-  db.prepare("UPDATE paper_accounts SET cash_balance = cash_balance + ?, updated_at = ? WHERE id = ?")
-    .run(marginReleased + realizedPnl, now, position.account_id);
-
   const remainingQty = position.qty - closedQty;
+  try {
+    db.exec("BEGIN");
+    db.prepare(
+      `INSERT INTO paper_trades
+        (id, account_id, position_id, instrument_type, symbol, underlying, strike, option_type, expiry, side, qty, lot_size, entry_price, exit_price, entry_date, exit_date, realized_pnl, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      tradeId, position.account_id, position.id, position.instrument_type, position.symbol,
+      position.underlying, position.strike, position.option_type, position.expiry,
+      position.side, closedQty, position.lot_size, position.entry_price, Number(exit_price),
+      position.entry_date, exit_date, realizedPnl, now
+    );
+    db.prepare("UPDATE paper_accounts SET cash_balance = cash_balance + ?, updated_at = ? WHERE id = ?")
+      .run(marginReleased + realizedPnl, now, position.account_id);
+    if (remainingQty <= 0) {
+      db.prepare("DELETE FROM paper_positions WHERE id = ?").run(position.id);
+    } else {
+      const newMargin = position.margin_blocked - marginReleased;
+      db.prepare("UPDATE paper_positions SET qty = ?, margin_blocked = ?, updated_at = ? WHERE id = ?")
+        .run(remainingQty, newMargin, now, position.id);
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+
   if (remainingQty <= 0) {
-    db.prepare("DELETE FROM paper_positions WHERE id = ?").run(position.id);
     res.json({ action: "closed", trade_id: tradeId, realized_pnl: realizedPnl });
   } else {
-    const newMargin = position.margin_blocked - marginReleased;
-    db.prepare("UPDATE paper_positions SET qty = ?, margin_blocked = ?, updated_at = ? WHERE id = ?")
-      .run(remainingQty, newMargin, now, position.id);
     res.json({
       action: "partial",
       trade_id: tradeId,
