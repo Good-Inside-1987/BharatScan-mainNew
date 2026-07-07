@@ -17,12 +17,12 @@ interface ScanRow {
 const all = () =>
   db
     .prepare("SELECT * FROM saved_scans ORDER BY updated_at DESC")
-    .all() as ScanRow[];
+    .all() as unknown as ScanRow[];
 
 const one = (id: string) =>
   db
     .prepare("SELECT * FROM saved_scans WHERE id = ?")
-    .get(id) as ScanRow | undefined;
+    .get(id) as unknown as ScanRow | undefined;
 
 router.get("/", (_req: Request, res: Response) => {
   res.json(all());

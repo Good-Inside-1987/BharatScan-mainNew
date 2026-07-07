@@ -29,7 +29,7 @@ function fmtDelta(n: number): string {
 
 interface OIStats {
   symbol: string;
-  instrument: "OPTIDX" | "OPTSTK";
+  instrument: "OPTIDX" | "OPTSTK" | undefined;
   latestDate: string;
   frontExpiry: string;
   ceOI: number;
@@ -86,7 +86,7 @@ function buildStats(ds: OptionsDataset | null, effectiveDate: string | null): OI
   // Aggregate OI stats per symbol (front expiry only, latest date)
   const agg = new Map<string, {
     ceOI: number; peOI: number; ceDeltaOI: number; peDeltaOI: number;
-    instrument: "OPTIDX" | "OPTSTK";
+    instrument: "OPTIDX" | "OPTSTK" | undefined;
   }>();
 
   for (const b of ds.bars) {

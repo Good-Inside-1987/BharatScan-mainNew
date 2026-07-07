@@ -24,7 +24,7 @@ router.get("/", (_req: Request, res: Response) => {
        GROUP BY d.id
        ORDER BY d.created_at ASC`
     )
-    .all() as (DashboardRow & { portfolio_count: number; holdings_count: number })[];
+    .all() as unknown as (DashboardRow & { portfolio_count: number; holdings_count: number })[];
   res.json(rows);
 });
 
@@ -42,7 +42,7 @@ router.post("/", (req: Request, res: Response) => {
   ).run(id, name.trim(), color ?? "#6366f1", now, now);
   const row = db
     .prepare("SELECT * FROM portfolio_dashboards WHERE id = ?")
-    .get(id) as DashboardRow;
+    .get(id) as unknown as DashboardRow;
   res.status(201).json({ ...row, portfolio_count: 0, holdings_count: 0 });
 });
 
@@ -50,7 +50,7 @@ router.post("/", (req: Request, res: Response) => {
 router.put("/:id", (req: Request, res: Response) => {
   const existing = db
     .prepare("SELECT * FROM portfolio_dashboards WHERE id = ?")
-    .get(req.params.id) as DashboardRow | undefined;
+    .get(req.params.id) as unknown as DashboardRow | undefined;
   if (!existing) { res.status(404).json({ error: "Not found" }); return; }
   const { name, color } = req.body as { name?: string; color?: string };
   const now = new Date().toISOString();
@@ -64,7 +64,7 @@ router.put("/:id", (req: Request, res: Response) => {
   );
   const updated = db
     .prepare("SELECT * FROM portfolio_dashboards WHERE id = ?")
-    .get(req.params.id) as DashboardRow;
+    .get(req.params.id) as unknown as DashboardRow;
   const counts = db
     .prepare(
       `SELECT COUNT(DISTINCT p.id) as portfolio_count, COUNT(DISTINCT h.id) as holdings_count
@@ -72,7 +72,7 @@ router.put("/:id", (req: Request, res: Response) => {
        LEFT JOIN holdings h ON h.portfolio_id = p.id AND h.status != 'squaredoff'
        WHERE p.dashboard_id = ?`
     )
-    .get(req.params.id) as { portfolio_count: number; holdings_count: number };
+    .get(req.params.id) as unknown as { portfolio_count: number; holdings_count: number };
   res.json({ ...updated, ...counts });
 });
 

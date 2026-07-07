@@ -56,18 +56,18 @@ interface PaperTradeRow {
 function computeAccountStats(accountId: string) {
   const positions = db
     .prepare("SELECT * FROM paper_positions WHERE account_id = ? AND status = 'open'")
-    .all(accountId) as PaperPositionRow[];
+    .all(accountId) as unknown as PaperPositionRow[];
   const invested = positions.reduce((sum, p) => sum + p.margin_blocked, 0);
   const trades = db
     .prepare("SELECT COALESCE(SUM(realized_pnl), 0) as total FROM paper_trades WHERE account_id = ?")
-    .get(accountId) as { total: number };
+    .get(accountId) as unknown as { total: number };
   return { invested, realizedPnl: trades.total, openPositions: positions.length };
 }
 
 // ── Accounts ─────────────────────────────────────────────────────────────────
 
 router.get("/accounts", (_req: Request, res: Response) => {
-  const rows = db.prepare("SELECT * FROM paper_accounts ORDER BY created_at ASC").all() as PaperAccountRow[];
+  const rows = db.prepare("SELECT * FROM paper_accounts ORDER BY created_at ASC").all() as unknown as PaperAccountRow[];
   const withStats = rows.map((a) => ({ ...a, ...computeAccountStats(a.id) }));
   res.json(withStats);
 });
@@ -83,11 +83,11 @@ router.post("/accounts", (req: Request, res: Response) => {
   db.prepare(
     "INSERT INTO paper_accounts (id, name, starting_balance, cash_balance, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
   ).run(id, name.trim(), Number(starting_balance), Number(starting_balance), now, now);
-  res.status(201).json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(id) as PaperAccountRow), ...computeAccountStats(id) });
+  res.status(201).json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(id) as unknown as PaperAccountRow), ...computeAccountStats(id) });
 });
 
 router.put("/accounts/:id", (req: Request, res: Response) => {
-  const existing = db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as PaperAccountRow | undefined;
+  const existing = db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow | undefined;
   if (!existing) { res.status(404).json({ error: "Not found" }); return; }
   const { name, add_funds } = req.body as { name?: string; add_funds?: number };
   const now = new Date().toISOString();
@@ -96,7 +96,7 @@ router.put("/accounts/:id", (req: Request, res: Response) => {
   db.prepare(
     "UPDATE paper_accounts SET name = ?, starting_balance = ?, cash_balance = ?, updated_at = ? WHERE id = ?"
   ).run(name?.trim() || existing.name, newStarting, newBalance, now, req.params.id);
-  res.json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as PaperAccountRow), ...computeAccountStats(req.params.id) });
+  res.json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow), ...computeAccountStats(req.params.id) });
 });
 
 router.delete("/accounts/:id", (req: Request, res: Response) => {
@@ -106,13 +106,13 @@ router.delete("/accounts/:id", (req: Request, res: Response) => {
 });
 
 router.post("/accounts/:id/reset", (req: Request, res: Response) => {
-  const existing = db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as PaperAccountRow | undefined;
+  const existing = db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow | undefined;
   if (!existing) { res.status(404).json({ error: "Not found" }); return; }
   const now = new Date().toISOString();
   db.prepare("DELETE FROM paper_positions WHERE account_id = ?").run(req.params.id);
   db.prepare("DELETE FROM paper_trades WHERE account_id = ?").run(req.params.id);
   db.prepare("UPDATE paper_accounts SET cash_balance = starting_balance, updated_at = ? WHERE id = ?").run(now, req.params.id);
-  res.json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as PaperAccountRow), ...computeAccountStats(req.params.id) });
+  res.json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow), ...computeAccountStats(req.params.id) });
 });
 
 // ── Positions ────────────────────────────────────────────────────────────────
@@ -120,12 +120,12 @@ router.post("/accounts/:id/reset", (req: Request, res: Response) => {
 router.get("/accounts/:id/positions", (req: Request, res: Response) => {
   const rows = db
     .prepare("SELECT * FROM paper_positions WHERE account_id = ? AND status = 'open' ORDER BY created_at DESC")
-    .all(req.params.id) as PaperPositionRow[];
+    .all(req.params.id) as unknown as PaperPositionRow[];
   res.json(rows);
 });
 
 router.post("/accounts/:id/positions", (req: Request, res: Response) => {
-  const account = db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as PaperAccountRow | undefined;
+  const account = db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow | undefined;
   if (!account) { res.status(404).json({ error: "Account not found" }); return; }
 
   const {
@@ -178,13 +178,13 @@ router.post("/accounts/:id/positions", (req: Request, res: Response) => {
   );
   db.prepare("UPDATE paper_accounts SET cash_balance = cash_balance - ?, updated_at = ? WHERE id = ?").run(notional, now, req.params.id);
 
-  res.status(201).json(db.prepare("SELECT * FROM paper_positions WHERE id = ?").get(id) as PaperPositionRow);
+  res.status(201).json(db.prepare("SELECT * FROM paper_positions WHERE id = ?").get(id) as unknown as PaperPositionRow);
 });
 
 router.post("/accounts/:id/positions/:posId/close", (req: Request, res: Response) => {
-  const account = db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as PaperAccountRow | undefined;
+  const account = db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow | undefined;
   if (!account) { res.status(404).json({ error: "Account not found" }); return; }
-  const position = db.prepare("SELECT * FROM paper_positions WHERE id = ? AND account_id = ?").get(req.params.posId, req.params.id) as PaperPositionRow | undefined;
+  const position = db.prepare("SELECT * FROM paper_positions WHERE id = ? AND account_id = ?").get(req.params.posId, req.params.id) as unknown as PaperPositionRow | undefined;
   if (!position) { res.status(404).json({ error: "Position not found" }); return; }
 
   const { qty_closed, exit_price, exit_date } = req.body as { qty_closed?: number; exit_price?: number; exit_date?: string };
@@ -228,7 +228,7 @@ router.post("/accounts/:id/positions/:posId/close", (req: Request, res: Response
       trade_id: tradeId,
       realized_pnl: realizedPnl,
       remaining_qty: remainingQty,
-      position: db.prepare("SELECT * FROM paper_positions WHERE id = ?").get(position.id) as PaperPositionRow,
+      position: db.prepare("SELECT * FROM paper_positions WHERE id = ?").get(position.id) as unknown as PaperPositionRow,
     });
   }
 });
@@ -238,7 +238,7 @@ router.post("/accounts/:id/positions/:posId/close", (req: Request, res: Response
 router.get("/accounts/:id/trades", (req: Request, res: Response) => {
   const rows = db
     .prepare("SELECT * FROM paper_trades WHERE account_id = ? ORDER BY created_at DESC")
-    .all(req.params.id) as PaperTradeRow[];
+    .all(req.params.id) as unknown as PaperTradeRow[];
   res.json(rows);
 });
 

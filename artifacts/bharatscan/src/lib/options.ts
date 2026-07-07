@@ -17,7 +17,7 @@ export interface OptionBar {
   oi: number;
   changeInOI: number;  // CHG_IN_OI — daily change in open interest
   volume: number;      // contracts
-  instrument: "OPTIDX" | "OPTSTK"; // index vs stock option
+  instrument?: "OPTIDX" | "OPTSTK"; // index vs stock option; absent for API-sourced rows
 }
 
 export interface FuturesBar {
@@ -213,6 +213,7 @@ export function parseOptionsApiRows(rows: ApiOptionRow[]): OptionBar[] {
       low: Number(row.low),
       close: Number(row.close),
       oi: Number(row.open_interest) || 0,
+      changeInOI: Number(row.change_in_oi) || 0,
       volume: Number(row.volume) || 0,
     });
   }

@@ -24,18 +24,18 @@ interface ScanRow {
 }
 
 const allDashboards = () =>
-  db.prepare("SELECT * FROM scanner_dashboards ORDER BY created_at ASC").all() as DashboardRow[];
+  db.prepare("SELECT * FROM scanner_dashboards ORDER BY created_at ASC").all() as unknown as DashboardRow[];
 
 const oneDashboard = (id: string) =>
-  db.prepare("SELECT * FROM scanner_dashboards WHERE id = ?").get(id) as DashboardRow | undefined;
+  db.prepare("SELECT * FROM scanner_dashboards WHERE id = ?").get(id) as unknown as DashboardRow | undefined;
 
 const scansForDashboard = (dashboardId: string) =>
   db
     .prepare("SELECT * FROM scanner_dashboard_scans WHERE dashboard_id = ? ORDER BY order_idx ASC, created_at ASC")
-    .all(dashboardId) as ScanRow[];
+    .all(dashboardId) as unknown as ScanRow[];
 
 const oneScan = (id: string) =>
-  db.prepare("SELECT * FROM scanner_dashboard_scans WHERE id = ?").get(id) as ScanRow | undefined;
+  db.prepare("SELECT * FROM scanner_dashboard_scans WHERE id = ?").get(id) as unknown as ScanRow | undefined;
 
 // ── Dashboard CRUD ─────────────────────────────────────────────────────────────
 

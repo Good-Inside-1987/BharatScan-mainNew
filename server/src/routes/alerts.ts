@@ -3,6 +3,22 @@ import { db } from "../db.js";
 
 const router = Router();
 
+interface AlertRow {
+  id: string;
+  symbol: string;
+  condition_type: string;
+  target_price: number;
+  note: string;
+  status: string;
+  priority: string;
+  side: string;
+  trigger_count: number;
+  last_triggered_at: string | null;
+  last_checked_price: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── List all alerts ────────────────────────────────────────────────────────────
 router.get("/", (_req, res) => {
   const rows = db.prepare("SELECT * FROM alerts ORDER BY created_at DESC").all();
@@ -34,17 +50,20 @@ router.post("/", (req, res) => {
 
 // ── Update alert ───────────────────────────────────────────────────────────────
 router.put("/:id", (req, res) => {
-  const existing = db.prepare("SELECT * FROM alerts WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
+  const existing = db.prepare("SELECT * FROM alerts WHERE id = ?").get(req.params.id) as unknown as AlertRow | undefined;
   if (!existing) return res.status(404).json({ error: "not found" });
-  const { symbol, condition_type, target_price, note, priority, side } = req.body as Record<string, unknown>;
+  const { symbol, condition_type, target_price, note, priority, side } = req.body as {
+    symbol?: string; condition_type?: string; target_price?: number;
+    note?: string; priority?: string; side?: string;
+  };
   const now = new Date().toISOString();
   db.prepare(`
     UPDATE alerts SET symbol=?, condition_type=?, target_price=?, note=?, priority=?, side=?, updated_at=? WHERE id=?
   `).run(
-    (symbol as string | undefined)?.trim().toUpperCase() ?? existing.symbol,
+    symbol?.trim().toUpperCase() ?? existing.symbol,
     condition_type ?? existing.condition_type,
     target_price != null ? Number(target_price) : existing.target_price,
-    note != null ? (note as string).trim() : existing.note,
+    note != null ? note.trim() : existing.note,
     priority ?? existing.priority,
     side ?? existing.side ?? "buy",
     now, req.params.id
@@ -54,7 +73,7 @@ router.put("/:id", (req, res) => {
 
 // ── Toggle status ──────────────────────────────────────────────────────────────
 router.patch("/:id/toggle", (req, res) => {
-  const existing = db.prepare("SELECT * FROM alerts WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
+  const existing = db.prepare("SELECT * FROM alerts WHERE id = ?").get(req.params.id) as unknown as AlertRow | undefined;
   if (!existing) return res.status(404).json({ error: "not found" });
   const newStatus = existing.status === "active" ? "paused" : "active";
   db.prepare("UPDATE alerts SET status=?, updated_at=? WHERE id=?").run(newStatus, new Date().toISOString(), req.params.id);
@@ -76,7 +95,7 @@ router.get("/history/all", (_req, res) => {
 
 // ── Record a trigger ──────────────────────────────────────────────────────────
 router.post("/:id/trigger", (req, res) => {
-  const existing = db.prepare("SELECT * FROM alerts WHERE id=?").get(req.params.id) as Record<string, unknown> | undefined;
+  const existing = db.prepare("SELECT * FROM alerts WHERE id=?").get(req.params.id) as unknown as AlertRow | undefined;
   if (!existing) return res.status(404).json({ error: "not found" });
   const { triggered_price } = req.body as { triggered_price: number };
   const id = crypto.randomUUID();

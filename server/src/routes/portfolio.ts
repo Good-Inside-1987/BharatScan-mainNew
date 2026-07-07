@@ -44,8 +44,8 @@ interface BookedTradeRow {
 router.get("/", (req: Request, res: Response) => {
   const { dashboard_id } = req.query as { dashboard_id?: string };
   const rows = dashboard_id
-    ? (db.prepare("SELECT * FROM portfolios WHERE dashboard_id = ? ORDER BY created_at ASC").all(dashboard_id) as PortfolioRow[])
-    : (db.prepare("SELECT * FROM portfolios ORDER BY created_at ASC").all() as PortfolioRow[]);
+    ? (db.prepare("SELECT * FROM portfolios WHERE dashboard_id = ? ORDER BY created_at ASC").all(dashboard_id) as unknown as PortfolioRow[])
+    : (db.prepare("SELECT * FROM portfolios ORDER BY created_at ASC").all() as unknown as PortfolioRow[]);
   res.json(rows);
 });
 
@@ -61,7 +61,7 @@ router.post("/", (req: Request, res: Response) => {
     "INSERT INTO portfolios (id, name, notes, dashboard_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
   ).run(id, name.trim(), notes?.trim() ?? null, dashboard_id ?? null, now, now);
   res.status(201).json(
-    db.prepare("SELECT * FROM portfolios WHERE id = ?").get(id) as PortfolioRow
+    db.prepare("SELECT * FROM portfolios WHERE id = ?").get(id) as unknown as PortfolioRow
   );
 });
 
@@ -69,14 +69,14 @@ router.put("/:id", (req: Request, res: Response) => {
   const { name, notes } = req.body as { name?: string; notes?: string };
   const existing = db
     .prepare("SELECT * FROM portfolios WHERE id = ?")
-    .get(req.params.id) as PortfolioRow | undefined;
+    .get(req.params.id) as unknown as PortfolioRow | undefined;
   if (!existing) { res.status(404).json({ error: "Not found" }); return; }
   const now = new Date().toISOString();
   db.prepare(
     "UPDATE portfolios SET name = ?, notes = ?, updated_at = ? WHERE id = ?"
   ).run(name ?? existing.name, notes !== undefined ? (notes?.trim() ?? null) : existing.notes, now, req.params.id);
   res.json(
-    db.prepare("SELECT * FROM portfolios WHERE id = ?").get(req.params.id) as PortfolioRow
+    db.prepare("SELECT * FROM portfolios WHERE id = ?").get(req.params.id) as unknown as PortfolioRow
   );
 });
 
@@ -99,14 +99,14 @@ router.get("/all/holdings", (req: Request, res: Response) => {
          JOIN portfolios p ON h.portfolio_id = p.id
          WHERE h.status != 'squaredoff' AND p.dashboard_id = ?
          ORDER BY h.created_at ASC`
-      ).all(dashboard_id) as (HoldingRow & { portfolio_name: string })[])
+      ).all(dashboard_id) as unknown as (HoldingRow & { portfolio_name: string })[])
     : (db.prepare(
         `SELECT h.*, p.name as portfolio_name
          FROM holdings h
          JOIN portfolios p ON h.portfolio_id = p.id
          WHERE h.status != 'squaredoff'
          ORDER BY h.created_at ASC`
-      ).all() as (HoldingRow & { portfolio_name: string })[]);
+      ).all() as unknown as (HoldingRow & { portfolio_name: string })[]);
   res.json(rows);
 });
 
@@ -121,13 +121,13 @@ router.get("/all/booked", (req: Request, res: Response) => {
          JOIN portfolios p ON bt.portfolio_id = p.id
          WHERE p.dashboard_id = ?
          ORDER BY bt.created_at ASC`
-      ).all(dashboard_id) as (BookedTradeRow & { portfolio_name: string })[])
+      ).all(dashboard_id) as unknown as (BookedTradeRow & { portfolio_name: string })[])
     : (db.prepare(
         `SELECT bt.*, p.name as portfolio_name
          FROM booked_trades bt
          JOIN portfolios p ON bt.portfolio_id = p.id
          ORDER BY bt.created_at ASC`
-      ).all() as (BookedTradeRow & { portfolio_name: string })[]);
+      ).all() as unknown as (BookedTradeRow & { portfolio_name: string })[]);
   res.json(rows);
 });
 
@@ -138,7 +138,7 @@ router.get("/:id/holdings", (req: Request, res: Response) => {
     .prepare(
       "SELECT * FROM holdings WHERE portfolio_id = ? AND status != 'squaredoff' ORDER BY created_at ASC"
     )
-    .all(req.params.id) as HoldingRow[];
+    .all(req.params.id) as unknown as HoldingRow[];
   res.json(rows);
 });
 
@@ -163,14 +163,14 @@ router.post("/:id/holdings", (req: Request, res: Response) => {
     "INSERT INTO holdings (id, portfolio_id, symbol, qty, buy_price, buy_date, broker_account, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'holding', ?, ?)"
   ).run(id, req.params.id, symbol.trim().toUpperCase(), Number(qty), Number(buy_price), buy_date, broker_account?.trim() || null, now, now);
   res.status(201).json(
-    db.prepare("SELECT * FROM holdings WHERE id = ?").get(id) as HoldingRow
+    db.prepare("SELECT * FROM holdings WHERE id = ?").get(id) as unknown as HoldingRow
   );
 });
 
 router.put("/:id/holdings/:holdingId", (req: Request, res: Response) => {
   const holding = db
     .prepare("SELECT * FROM holdings WHERE id = ? AND portfolio_id = ?")
-    .get(req.params.holdingId, req.params.id) as HoldingRow | undefined;
+    .get(req.params.holdingId, req.params.id) as unknown as HoldingRow | undefined;
   if (!holding) { res.status(404).json({ error: "Not found" }); return; }
   const { symbol, qty, buy_price, buy_date, broker_account } = req.body as {
     symbol?: string; qty?: number; buy_price?: number; buy_date?: string; broker_account?: string;
@@ -187,7 +187,7 @@ router.put("/:id/holdings/:holdingId", (req: Request, res: Response) => {
     now,
     holding.id
   );
-  res.json(db.prepare("SELECT * FROM holdings WHERE id = ?").get(holding.id) as HoldingRow);
+  res.json(db.prepare("SELECT * FROM holdings WHERE id = ?").get(holding.id) as unknown as HoldingRow);
 });
 
 router.delete("/:id/holdings/:holdingId", (req: Request, res: Response) => {
@@ -212,7 +212,7 @@ router.post("/:id/holdings/:holdingId/squareoff", (req: Request, res: Response) 
   }
   const holding = db
     .prepare("SELECT * FROM holdings WHERE id = ?")
-    .get(req.params.holdingId) as HoldingRow | undefined;
+    .get(req.params.holdingId) as unknown as HoldingRow | undefined;
   if (!holding) { res.status(404).json({ error: "Holding not found" }); return; }
   if (holding.portfolio_id !== req.params.id) {
     res.status(403).json({ error: "Holding does not belong to this portfolio" });
@@ -247,7 +247,7 @@ router.post("/:id/holdings/:holdingId/squareoff", (req: Request, res: Response) 
       action: "partial",
       booked_id: bookedId,
       remaining_qty: remainingQty,
-      holding: db.prepare("SELECT * FROM holdings WHERE id = ?").get(holding.id) as HoldingRow,
+      holding: db.prepare("SELECT * FROM holdings WHERE id = ?").get(holding.id) as unknown as HoldingRow,
     });
   }
 });
@@ -257,7 +257,7 @@ router.post("/:id/holdings/:holdingId/squareoff", (req: Request, res: Response) 
 router.get("/:id/booked", (req: Request, res: Response) => {
   const rows = db
     .prepare("SELECT * FROM booked_trades WHERE portfolio_id = ? ORDER BY created_at ASC")
-    .all(req.params.id) as BookedTradeRow[];
+    .all(req.params.id) as unknown as BookedTradeRow[];
   res.json(rows);
 });
 

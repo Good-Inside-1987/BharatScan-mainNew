@@ -325,6 +325,9 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
         high: Number(row.high),
         low: Number(row.low),
         close: Number(row.close),
+        prevClose: 0,
+        trades: 0,
+        value: 0,
         volume: Number(row.volume) || 0,
       });
     }
