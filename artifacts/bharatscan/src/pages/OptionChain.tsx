@@ -182,10 +182,8 @@ function OIHBar({ value, max, color, align }: { value: number; max: number; colo
 function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
     <button type="button" onClick={onChange}
-      className={`relative shrink-0 w-10 h-5 rounded-full transition-colors ${checked ? "bg-primary" : "bg-muted/50 border border-border"}`}>
-      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-5" : "translate-x-0.5"}`}>
-        {checked && <span className="absolute inset-0 flex items-center justify-center text-primary text-[8px] font-black">✓</span>}
-      </span>
+      className={`relative shrink-0 w-10 h-5 rounded-full overflow-hidden transition-colors ${checked ? "bg-primary" : "bg-muted/50 border border-border"}`}>
+      <span className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-5" : "translate-x-0.5"}`} />
     </button>
   );
 }
