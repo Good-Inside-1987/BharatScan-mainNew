@@ -19,13 +19,32 @@ router.get("/", (_req: Request, res: Response) => {
 
 router.post("/", (req: Request, res: Response) => {
   const { key, value } = req.body as { key?: string; value?: string };
+
   if (!key || value === undefined) {
     res.status(400).json({ error: "key and value are required" });
     return;
   }
+
+  // Key must be alphanumeric with underscores/hyphens only
+  if (!/^[a-zA-Z0-9_\-:]+$/.test(key)) {
+    res.status(400).json({ error: "key must contain only letters, numbers, underscores, hyphens, or colons" });
+    return;
+  }
+
+  // Key max 100 chars, value max 10KB
+  if (key.length > 100) {
+    res.status(400).json({ error: "key too long (max 100 characters)" });
+    return;
+  }
+  if (String(value).length > 10240) {
+    res.status(400).json({ error: "value too large (max 10KB)" });
+    return;
+  }
+
   db.prepare(
     "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
   ).run(key, String(value));
+
   res.json({ key, value: String(value) });
 });
 
