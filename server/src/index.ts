@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { statSync } from "fs";
 import { timingSafeEqual } from "crypto";
+import cookieParser from "cookie-parser";
 // IMPORTANT: db.ts must be imported first — it runs migration and
 // initialises all three databases before any route handlers run.
 import { db, appDb, marketDb, liveDb } from "./db.js";
@@ -27,6 +28,27 @@ const port = Number(process.env.SERVER_PORT ?? 3001);
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+app.use(cookieParser());
+
+app.post("/api/auth/login", (req, res) => {
+  const { key } = req.body as { key?: string };
+  const requiredKey = process.env.API_KEY;
+  if (!requiredKey) {
+    res.json({ ok: true }); return;
+  }
+  if (!key || key.length !== requiredKey.length) {
+    res.status(401).json({ error: "Invalid key" }); return;
+  }
+  if (!timingSafeEqual(Buffer.from(key), Buffer.from(requiredKey))) {
+    res.status(401).json({ error: "Invalid key" }); return;
+  }
+  res.cookie("bs_session", requiredKey, {
+    httpOnly: true,
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+  res.json({ ok: true });
+});
 
 app.use("/api", (req, res, next) => {
   // Skip auth check if no API_KEY is set in environment
@@ -37,7 +59,7 @@ app.use("/api", (req, res, next) => {
   // Allow health check without auth
   if (req.path === "/health") { next(); return; }
 
-  const provided = req.headers["x-api-key"] as string | undefined;
+  const provided = req.cookies?.bs_session as string | undefined;
   const safeEqual = (a: string, b: string): boolean => {
     if (a.length !== b.length) return false;
     return timingSafeEqual(Buffer.from(a), Buffer.from(b));

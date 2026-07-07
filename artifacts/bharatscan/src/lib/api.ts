@@ -1,11 +1,5 @@
 const API_BASE = "/api";
 
-const API_KEY = import.meta.env.VITE_API_KEY ?? "";
-
-function apiHeaders(): HeadersInit {
-  return API_KEY ? { "x-api-key": API_KEY } : {};
-}
-
 export interface ApiScan {
   id: string;
   name: string;
@@ -25,9 +19,13 @@ export interface ApiSetting {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...apiHeaders(), ...init?.headers },
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...init?.headers },
   });
   if (!res.ok) {
+    if (res.status === 401) {
+      window.dispatchEvent(new CustomEvent("auth:unauthorized"));
+    }
     const body = await res.text().catch(() => "");
     throw new Error(
       `API ${init?.method ?? "GET"} ${path} → ${res.status}: ${body}`
