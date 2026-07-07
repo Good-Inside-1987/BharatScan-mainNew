@@ -23,6 +23,11 @@ void liveDb;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
 const app = express();
 const port = Number(process.env.SERVER_PORT ?? 3001);
 
@@ -60,10 +65,6 @@ app.use("/api", (req, res, next) => {
   if (req.path === "/health") { next(); return; }
 
   const provided = req.cookies?.bs_session as string | undefined;
-  const safeEqual = (a: string, b: string): boolean => {
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(Buffer.from(a), Buffer.from(b));
-  };
   if (!provided || !safeEqual(provided, requiredKey)) {
     res.status(401).json({ error: "Unauthorized" });
     return;
