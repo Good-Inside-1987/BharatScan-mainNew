@@ -3,6 +3,7 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import { statSync } from "fs";
+import { timingSafeEqual } from "crypto";
 // IMPORTANT: db.ts must be imported first — it runs migration and
 // initialises all three databases before any route handlers run.
 import { db, appDb, marketDb, liveDb } from "./db.js";
@@ -37,7 +38,11 @@ app.use("/api", (req, res, next) => {
   if (req.path === "/health") { next(); return; }
 
   const provided = req.headers["x-api-key"] as string | undefined;
-  if (!provided || provided !== requiredKey) {
+  const safeEqual = (a: string, b: string): boolean => {
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  };
+  if (!provided || !safeEqual(provided, requiredKey)) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
