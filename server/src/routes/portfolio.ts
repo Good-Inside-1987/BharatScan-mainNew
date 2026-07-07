@@ -289,34 +289,41 @@ router.post("/import", (req: Request, res: Response) => {
     res.status(400).json({ error: "portfolios array is required" });
     return;
   }
-  if (replace) {
-    if (dashboard_id) {
-      db.prepare("DELETE FROM portfolios WHERE dashboard_id = ?").run(dashboard_id);
-    } else {
-      db.prepare("DELETE FROM portfolios").run();
-    }
-  }
   const created: string[] = [];
   const now = new Date().toISOString();
-  for (const p of importData) {
-    if (!p.name?.trim()) continue;
-    const portfolioId = crypto.randomUUID();
-    db.prepare(
-      "INSERT INTO portfolios (id, name, notes, dashboard_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run(portfolioId, p.name.trim(), p.notes?.trim() ?? null, dashboard_id ?? null, now, now);
-    for (const h of p.holdings ?? []) {
-      if (!h.symbol || !h.qty || !h.buy_price || !h.buy_date) continue;
-      db.prepare(
-        "INSERT INTO holdings (id, portfolio_id, symbol, qty, buy_price, buy_date, broker_account, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(crypto.randomUUID(), portfolioId, h.symbol.trim().toUpperCase(), Number(h.qty), Number(h.buy_price), h.buy_date, h.broker_account?.trim() || null, h.status ?? "holding", now, now);
+  try {
+    db.exec("BEGIN");
+    if (replace) {
+      if (dashboard_id) {
+        db.prepare("DELETE FROM portfolios WHERE dashboard_id = ?").run(dashboard_id);
+      } else {
+        db.prepare("DELETE FROM portfolios").run();
+      }
     }
-    for (const b of p.booked_trades ?? []) {
-      if (!b.symbol || !b.qty || !b.buy_price || !b.sell_price || !b.buy_date || !b.sell_date) continue;
+    for (const p of importData) {
+      if (!p.name?.trim()) continue;
+      const portfolioId = crypto.randomUUID();
       db.prepare(
-        "INSERT INTO booked_trades (id, portfolio_id, holding_id, symbol, qty, buy_price, sell_price, buy_date, sell_date, realized_pnl, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(crypto.randomUUID(), portfolioId, null, b.symbol.trim().toUpperCase(), Number(b.qty), Number(b.buy_price), Number(b.sell_price), b.buy_date, b.sell_date, Number(b.realized_pnl), now);
+        "INSERT INTO portfolios (id, name, notes, dashboard_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(portfolioId, p.name.trim(), p.notes?.trim() ?? null, dashboard_id ?? null, now, now);
+      for (const h of p.holdings ?? []) {
+        if (!h.symbol || !h.qty || !h.buy_price || !h.buy_date) continue;
+        db.prepare(
+          "INSERT INTO holdings (id, portfolio_id, symbol, qty, buy_price, buy_date, broker_account, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(crypto.randomUUID(), portfolioId, h.symbol.trim().toUpperCase(), Number(h.qty), Number(h.buy_price), h.buy_date, h.broker_account?.trim() || null, h.status ?? "holding", now, now);
+      }
+      for (const b of p.booked_trades ?? []) {
+        if (!b.symbol || !b.qty || !b.buy_price || !b.sell_price || !b.buy_date || !b.sell_date) continue;
+        db.prepare(
+          "INSERT INTO booked_trades (id, portfolio_id, holding_id, symbol, qty, buy_price, sell_price, buy_date, sell_date, realized_pnl, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(crypto.randomUUID(), portfolioId, null, b.symbol.trim().toUpperCase(), Number(b.qty), Number(b.buy_price), Number(b.sell_price), b.buy_date, b.sell_date, Number(b.realized_pnl), now);
+      }
+      created.push(portfolioId);
     }
-    created.push(portfolioId);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
   }
   res.status(201).json({ imported: created.length, portfolio_ids: created });
 });
