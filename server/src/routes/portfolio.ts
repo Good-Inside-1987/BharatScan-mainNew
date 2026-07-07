@@ -226,23 +226,34 @@ router.post("/:id/holdings/:holdingId/squareoff", (req: Request, res: Response) 
 
   const now = new Date().toISOString();
   const realizedPnl = (Number(sell_price) - holding.buy_price) * soldQty;
-
   const bookedId = crypto.randomUUID();
-  db.prepare(
-    `INSERT INTO booked_trades (id, portfolio_id, holding_id, symbol, qty, buy_price, sell_price, buy_date, sell_date, realized_pnl, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    bookedId, holding.portfolio_id, holding.id, holding.symbol,
-    soldQty, holding.buy_price, Number(sell_price),
-    holding.buy_date, sell_date, realizedPnl, now
-  );
-
   const remainingQty = holding.qty - soldQty;
+
+  try {
+    db.exec("BEGIN");
+    db.prepare(
+      `INSERT INTO booked_trades (id, portfolio_id, holding_id, symbol, qty, buy_price, sell_price, buy_date, sell_date, realized_pnl, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      bookedId, holding.portfolio_id, holding.id, holding.symbol,
+      soldQty, holding.buy_price, Number(sell_price),
+      holding.buy_date, sell_date, realizedPnl, now
+    );
+    if (remainingQty <= 0) {
+      db.prepare("DELETE FROM holdings WHERE id = ?").run(holding.id);
+    } else {
+      db.prepare("UPDATE holdings SET qty = ?, status = 'partial', updated_at = ? WHERE id = ?")
+        .run(remainingQty, now, holding.id);
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+
   if (remainingQty <= 0) {
-    db.prepare("DELETE FROM holdings WHERE id = ?").run(holding.id);
     res.json({ action: "squaredoff", booked_id: bookedId });
   } else {
-    db.prepare("UPDATE holdings SET qty = ?, status = 'partial', updated_at = ? WHERE id = ?").run(remainingQty, now, holding.id);
     res.json({
       action: "partial",
       booked_id: bookedId,
