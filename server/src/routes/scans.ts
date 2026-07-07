@@ -38,6 +38,10 @@ router.post("/", (req: Request, res: Response) => {
     res.status(400).json({ error: "name and scan_json are required" });
     return;
   }
+  if (scan_json && scan_json.length > 512000) {
+    res.status(400).json({ error: "scan_json too large (max 500KB)" });
+    return;
+  }
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   db.prepare(
@@ -66,6 +70,10 @@ router.put("/:id", (req: Request, res: Response) => {
     scan_json?: string;
     folder?: string;
   };
+  if (scan_json && scan_json.length > 512000) {
+    res.status(400).json({ error: "scan_json too large (max 500KB)" });
+    return;
+  }
   const now = new Date().toISOString();
   db.prepare(
     "UPDATE saved_scans SET name = ?, scan_json = ?, folder = ?, updated_at = ? WHERE id = ?"
