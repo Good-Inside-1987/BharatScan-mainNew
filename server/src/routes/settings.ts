@@ -3,12 +3,17 @@ import { db } from "../db.js";
 
 const router = Router();
 
+const BLOCKED_KEYS = ['angel_', 'totp_', 'mpin', 'api_key', 'client_code', 'secret', 'password', 'token'];
+
 router.get("/", (_req: Request, res: Response) => {
   const rows = db
     .prepare("SELECT key, value FROM app_settings")
     .all() as { key: string; value: string }[];
   const obj: Record<string, string> = {};
-  for (const row of rows) obj[row.key] = row.value;
+  for (const row of rows) {
+    if (BLOCKED_KEYS.some(b => row.key.toLowerCase().startsWith(b))) continue;
+    obj[row.key] = row.value;
+  }
   res.json(obj);
 });
 
