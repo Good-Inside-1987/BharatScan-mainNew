@@ -27,6 +27,23 @@ const port = Number(process.env.SERVER_PORT ?? 3001);
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
+app.use("/api", (req, res, next) => {
+  // Skip auth check if no API_KEY is set in environment
+  // (allows development without setting up a key)
+  const requiredKey = process.env.API_KEY;
+  if (!requiredKey) { next(); return; }
+
+  // Allow health check without auth
+  if (req.path === "/health") { next(); return; }
+
+  const provided = req.headers["x-api-key"] as string | undefined;
+  if (!provided || provided !== requiredKey) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  next();
+});
+
 app.use("/api/scans", scansRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/portfolio", portfolioRouter);

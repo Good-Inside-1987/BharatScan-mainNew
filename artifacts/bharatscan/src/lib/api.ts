@@ -1,5 +1,11 @@
 const API_BASE = "/api";
 
+const API_KEY = import.meta.env.VITE_API_KEY ?? "";
+
+function apiHeaders(): HeadersInit {
+  return API_KEY ? { "x-api-key": API_KEY } : {};
+}
+
 export interface ApiScan {
   id: string;
   name: string;
@@ -19,7 +25,7 @@ export interface ApiSetting {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: { "Content-Type": "application/json", ...apiHeaders(), ...init?.headers },
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
