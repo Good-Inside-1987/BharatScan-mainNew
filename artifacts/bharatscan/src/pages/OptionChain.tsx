@@ -628,9 +628,13 @@ export default function OptionChainTab() {
   function isGreekView() { return viewMode === "greeks"; }
 
   // ── Side width: sum of all visible column px widths (same formula header + rows) ──
-  const centerWidth = vis("iv") ? 96 : 60;
+  // centerWidth is always just the Strike column so it stays perfectly centred.
+  // IV is placed as the innermost column on each side (CE IV → CALLS, PE IV → PUTS)
+  // so both sides remain equal-width and the Strike is never displaced.
+  const centerWidth = 60;
   const sideWidth = useMemo(() => {
     let w = 44 + 56 + 52; // OI-lakh(44) + OI-bar(56) + LTP(52) — always visible
+    if (s.iv)            w += 36; // CE IV (CALLS innermost) / PE IV (PUTS innermost)
     if (s.ltpChangePct)  w += 44;
     if (s.ltpChange)     w += 44;
     if (s.breakeven)     w += 48;
@@ -846,16 +850,17 @@ export default function OptionChainTab() {
                   {vis("ltpChange")    && <div className="px-1.5 py-1 text-right w-[44px] shrink-0">LTP Chg</div>}
                   {vis("ltpChangePct") && <div className="px-1.5 py-1 text-right w-[44px] shrink-0">LTP%</div>}
                                           <div className="px-2 py-1 text-right w-[52px] shrink-0">LTP</div>
+                  {vis("iv")           && <div className="px-1.5 py-1 text-right w-[36px] shrink-0">IV</div>}
                 </div>
 
-                {/* Center */}
+                {/* Center — Strike only, always 60 px so it stays perfectly centred */}
                 <div className="shrink-0 flex items-center border-x border-border/40" style={{ width: centerWidth }}>
                   <div className="text-center py-1 w-[60px] shrink-0">Strike</div>
-                  {vis("iv") && <div className="text-center py-1 w-[36px] shrink-0">IV</div>}
                 </div>
 
-                {/* PUTS side — left-aligned, leftmost = LTP */}
+                {/* PUTS side — left-aligned, leftmost = IV (when on) then LTP */}
                 <div className="flex shrink-0" style={{ width: sideWidth }}>
+                  {vis("iv")           && <div className="px-1.5 py-1 text-left w-[36px] shrink-0">IV</div>}
                                           <div className="px-2 py-1 text-left w-[52px] shrink-0">LTP</div>
                   {vis("ltpChangePct") && <div className="px-1.5 py-1 text-left w-[44px] shrink-0">LTP%</div>}
                   {vis("ltpChange")    && <div className="px-1.5 py-1 text-left w-[44px] shrink-0">LTP Chg</div>}
@@ -951,19 +956,10 @@ export default function OptionChainTab() {
                       <div className={`px-2 py-1.5 text-right w-[52px] shrink-0 font-bold ${row.ce > 0 ? "text-foreground" : "text-foreground/30"}`}>
                         {row.ce > 0 ? ceLTP.toFixed(1) : "—"}
                       </div>
-                    </div>
-
-                    {/* ── Center ─────────────────────────────────── */}
-                    <div className={`shrink-0 flex items-center border-x border-border/30 ${strikeBg}`} style={{ width: centerWidth }}>
-                      <div className={`text-center py-1.5 font-bold w-[60px] shrink-0 ${isATM ? "text-blue-300" : "text-foreground/80"}`}>
-                        {isATM && <span className="text-[7px] text-blue-400 mr-0.5 font-black">★</span>}
-                        {row.strike.toLocaleString("en-IN")}
-                      </div>
+                      {/* CE IV — innermost CALLS column, mirrored by PE IV on PUTS side */}
                       {vis("iv") && (
-                        <div className="text-center py-1.5 w-[36px] shrink-0">
-                          <span className="text-muted-foreground/70">
-                            {row.ceIV > 0 ? row.ceIV.toFixed(1) : "—"}
-                          </span>
+                        <div className="px-1.5 py-1.5 w-[36px] shrink-0 flex flex-col items-center justify-center">
+                          <span className="text-muted-foreground/70">{row.ceIV > 0 ? row.ceIV.toFixed(1) : "—"}</span>
                           {vis("ivChange") && isFinite(ceIVChg) && (
                             <div className={`text-[7px] leading-tight ${ceIVChg >= 0 ? "text-amber-400/70" : "text-sky-400/70"}`}>
                               {ceIVChg >= 0 ? "+" : ""}{ceIVChg.toFixed(1)}
@@ -973,8 +969,27 @@ export default function OptionChainTab() {
                       )}
                     </div>
 
+                    {/* ── Center — Strike only, always 60 px ─────── */}
+                    <div className={`shrink-0 flex items-center border-x border-border/30 ${strikeBg}`} style={{ width: centerWidth }}>
+                      <div className={`text-center py-1.5 font-bold w-[60px] shrink-0 ${isATM ? "text-blue-300" : "text-foreground/80"}`}>
+                        {isATM && <span className="text-[7px] text-blue-400 mr-0.5 font-black">★</span>}
+                        {row.strike.toLocaleString("en-IN")}
+                      </div>
+                    </div>
+
                     {/* ── PUTS side ──────────────────────────────── */}
                     <div className={`flex shrink-0 items-center ${peBg}`} style={{ width: sideWidth }}>
+                      {/* PE IV — innermost PUTS column, mirrors CE IV on CALLS side */}
+                      {vis("iv") && (
+                        <div className="px-1.5 py-1.5 w-[36px] shrink-0 flex flex-col items-center justify-center">
+                          <span className="text-muted-foreground/70">{row.peIV > 0 ? row.peIV.toFixed(1) : "—"}</span>
+                          {vis("ivChange") && isFinite(peIVChg) && (
+                            <div className={`text-[7px] leading-tight ${peIVChg >= 0 ? "text-amber-400/70" : "text-sky-400/70"}`}>
+                              {peIVChg >= 0 ? "+" : ""}{peIVChg.toFixed(1)}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {/* LTP always */}
                       <div className={`px-2 py-1.5 text-left w-[52px] shrink-0 font-bold ${row.pe > 0 ? "text-foreground" : "text-foreground/30"}`}>
                         {row.pe > 0 ? peLTP.toFixed(1) : "—"}
