@@ -573,11 +573,19 @@ export default function OptionChainTab() {
     return atmStrike(spot, undefined, enrichedChain.map((r) => r.strike)) ?? 0;
   }, [spot, enrichedChain]);
 
-  // Scroll to ATM
+  // Scroll to ATM — center vertically within the chain scroll container
   useEffect(() => {
     if (!chainScrollRef.current || !atmK) return;
-    const el = chainScrollRef.current.querySelector<HTMLElement>('[data-atm="true"]');
-    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    const container = chainScrollRef.current;
+    const id = requestAnimationFrame(() => {
+      const el = container.querySelector<HTMLElement>('[data-atm="true"]');
+      if (!el) return;
+      const cRect = container.getBoundingClientRect();
+      const eRect = el.getBoundingClientRect();
+      // Shift scrollTop so the ATM row's center aligns with the container's center
+      container.scrollTop += eRect.top - cRect.top - (cRect.height / 2 - eRect.height / 2);
+    });
+    return () => cancelAnimationFrame(id);
   }, [atmK, activeExpiry]);
 
   // Scroll active expiry into view
@@ -803,6 +811,9 @@ export default function OptionChainTab() {
         <div className="flex-1 overflow-hidden">
           {/* Single scroll container — header and rows share one scroll position */}
           <div ref={chainScrollRef} className="h-full overflow-auto">
+            {/* Centering wrapper: w-fit + mx-auto centers the table when the viewport is wider;
+                overflow-auto on the parent handles horizontal scroll when the table is wider */}
+            <div className="w-fit mx-auto">
             {/* Sticky header — stays at top during vertical scroll, moves with horizontal scroll */}
             <div className="sticky top-0 z-10 bg-[#0d1117] border-b border-border">
               {/* Group header: CALLS | center | PUTS */}
@@ -1009,6 +1020,7 @@ export default function OptionChainTab() {
                 );
               })}
             </div>
+            </div>{/* /w-fit mx-auto centering wrapper */}
           </div>
         </div>
       )}
