@@ -10,6 +10,7 @@ import {
   Settings,
   LineChart,
   Wallet,
+  Plug,
 } from "lucide-react";
 import logoUrl from "@/assets/bharatscan-logo.png";
 import { useTheme } from "@/hooks/useTheme";
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
   { to: "/paper-trading", label: "Paper\nTrading", icon: Wallet },
   { to: "/saved-scan", label: "Saved\nScan", icon: BookMarked },
   { to: "/alerts", label: "Alerts", icon: Bell },
+  { to: "/broker-connections", label: "Broker\nConnect", icon: Plug },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 

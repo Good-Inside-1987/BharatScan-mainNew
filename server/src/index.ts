@@ -16,6 +16,7 @@ import dashboardsRouter from "./routes/dashboards.js";
 import scannerDashboardsRouter from "./routes/scannerDashboards.js";
 import alertsRouter from "./routes/alerts.js";
 import paperTradingRouter from "./routes/paperTrading.js";
+import brokerConnectionsRouter from "./routes/brokerConnections.js";
 
 void appDb;
 void marketDb;
@@ -39,7 +40,7 @@ function verifySession(token: string, key: string): boolean {
   if (parts.length !== 2) return false;
   const [nonce, sig] = parts;
   const expected = createHmac("sha256", key).update(nonce).digest("hex");
-  if (nonce.length !== expected.length) return false;
+  if (sig.length !== expected.length) return false;
   return timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }
 
@@ -114,6 +115,7 @@ app.use("/api/dashboards", dashboardsRouter);
 app.use("/api/scanner-dashboards", scannerDashboardsRouter);
 app.use("/api/alerts", alertsRouter);
 app.use("/api/paper-trading", paperTradingRouter);
+app.use("/api/broker-connections", brokerConnectionsRouter);
 
 app.get("/api/health", (_req, res) => {
   const meta = db

@@ -176,5 +176,20 @@ export function initAppDb(db: DatabaseSync): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    -- ── Broker Connections ────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS broker_connections (
+      id                 TEXT PRIMARY KEY,
+      broker_name        TEXT NOT NULL,
+      display_name       TEXT NOT NULL,
+      api_key            TEXT NOT NULL,
+      client_code        TEXT NOT NULL,
+      pin                TEXT NOT NULL,
+      access_token       TEXT,
+      token_generated_at TEXT,
+      status             TEXT NOT NULL DEFAULT 'disconnected',
+      created_at         TEXT NOT NULL,
+      updated_at         TEXT NOT NULL
+    );
   `);
 }

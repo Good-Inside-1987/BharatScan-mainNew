@@ -1,0 +1,53 @@
+Add a Broker Connections page to BharatScan. 
+
+Create a new database table in app.db called broker_connections:
+- id (UUID)
+- broker_name (text: 'angel_one', 'fyers', etc.)
+- display_name (text: 'Angel One', 'Fyers', etc.)
+- api_key (text, AES-256-GCM encrypted)
+- client_code (text, AES-256-GCM encrypted)
+- pin (text, AES-256-GCM encrypted)
+- access_token (text, encrypted, short-lived)
+- token_generated_at (timestamp)
+- status (text: 'connected', 'expired', 'disconnected')
+- created_at, updated_at
+
+Encryption: Use Node.js built-in crypto module, AES-256-GCM.
+The encryption key comes from process.env.BROKER_ENCRYPTION_KEY 
+in the .env file. Never hardcode it.
+
+Add these API endpoints in a new file 
+server/src/routes/brokerConnections.ts:
+- GET  /api/broker-connections — list all saved brokers (never 
+  return encrypted values, only id, broker_name, display_name, 
+  status, token_generated_at)
+- POST /api/broker-connections — save new broker credentials 
+  (encrypt before storing)
+- PUT  /api/broker-connections/:id — update credentials
+- DELETE /api/broker-connections/:id — remove a broker
+- POST /api/broker-connections/:id/connect — accepts a TOTP 
+  code in the request body, reads saved credentials from DB, 
+  decrypts them, calls Angel One SmartAPI login with 
+  api_key + client_code + pin + totp_code, stores the returned 
+  access_token (encrypted) and sets status to 'connected'
+- POST /api/broker-connections/:id/disconnect — clears 
+  access_token, sets status to 'disconnected'
+- GET  /api/broker-connections/:id/status — returns current 
+  status and whether the session is still valid
+
+Add a Broker Connections page in the frontend at /broker-connections:
+- Show list of connected brokers with green/red status indicator
+- "Add Broker" button opens a form to enter credentials
+- For Angel One form fields: API Key, Client Code, PIN
+- Save button posts to the API (credentials go directly to 
+  server, never stored in frontend state or localStorage)
+- When status is 'expired', show a small TOTP input field 
+  with a "Reconnect" button next to that broker
+- Show "Last connected" time and "Session valid until" if known
+- "Remove" button to delete a broker connection
+
+Add BROKER_ENCRYPTION_KEY to .env.example:
+BROKER_ENCRYPTION_KEY=generate-a-32-character-random-string
+
+Do not hardcode any API keys, credentials, or secrets anywhere 
+in the code. Do not log decrypted credentials anywhere.

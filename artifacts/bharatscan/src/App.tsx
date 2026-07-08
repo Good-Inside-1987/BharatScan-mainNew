@@ -15,6 +15,7 @@ import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
 import OptionsAnalysis from "./pages/Options";
 import PaperTrading from "./pages/PaperTrading";
+import BrokerConnections from "./pages/BrokerConnections";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -47,6 +48,7 @@ const App = () => (
             <Route path="/settings" element={<Settings />} />
             <Route path="/options" element={<OptionsAnalysis />} />
             <Route path="/paper-trading" element={<PaperTrading />} />
+            <Route path="/broker-connections" element={<BrokerConnections />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
