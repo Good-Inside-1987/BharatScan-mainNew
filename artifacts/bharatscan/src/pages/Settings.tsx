@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { User, Palette, Bell, ScanSearch, Database, FileInput, Shield, HardDrive, ChevronRight, Moon, Sun, Monitor, Check, Download, Upload, Loader2, Trash2 } from "lucide-react";
+import { User, Palette, Bell, ScanSearch, Database, FileInput, Shield, HardDrive, ChevronRight, Moon, Sun, Monitor, Check, Download, Upload, Loader2, Trash2, Plug, PlugZap, RefreshCw, LogOut, Plus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,7 @@ const SECTIONS = [
   { id: "import", label: "Import / Export", icon: FileInput },
   { id: "security", label: "Security", icon: Shield },
   { id: "backup", label: "Backup / Restore", icon: HardDrive },
+  { id: "broker", label: "Broker Connect", icon: Plug },
 ];
 
 const ACCENT_OPTIONS: { id: AccentColor; label: string; cls: string }[] = [
@@ -79,6 +80,29 @@ function SectionCard({ title, icon: Icon, children }: { title: string; icon: Rea
       <div className="px-4">{children}</div>
     </Card>
   );
+}
+
+// ── Broker Connection types & helpers ─────────────────────────────────────────
+
+interface BrokerConnection {
+  id: string;
+  broker_name: string;
+  display_name: string;
+  status: "connected" | "expired" | "disconnected";
+  token_generated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+async function brokerFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    credentials: "include",
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error((json as { error?: string }).error ?? `HTTP ${res.status}`);
+  return json as T;
 }
 
 function formatDate(iso: string | null): string {
@@ -134,6 +158,15 @@ export default function Settings() {
   const [restoreLog, setRestoreLog] = useState<string[]>([]);
   const [lastBackup, setLastBackup] = useState<string | null>(getLastBackupTime);
   const restoreInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Broker connections ─────────────────────────────────────────────────────
+  const [brokers, setBrokers] = useState<BrokerConnection[]>([]);
+  const [brokersLoading, setBrokersLoading] = useState(false);
+  const [showAddBroker, setShowAddBroker] = useState(false);
+  const [addBrokerForm, setAddBrokerForm] = useState({ display_name: "Angel One", api_key: "", client_code: "", pin: "" });
+  const [addBrokerSaving, setAddBrokerSaving] = useState(false);
+  const [brokerTotps, setBrokerTotps] = useState<Record<string, string>>({});
+  const [brokerBusy, setBrokerBusy] = useState<Record<string, boolean>>({});
 
   // ── Load all settings from backend on mount ────────────────────────────────
   useEffect(() => {
@@ -262,6 +295,92 @@ export default function Settings() {
       toast.error("Failed to clear all data");
     } finally {
       setClearing(false);
+    }
+  }, []);
+
+  // ── Broker: load when section becomes active ──────────────────────────────
+  useEffect(() => {
+    if (activeSection !== "broker") return;
+    setBrokersLoading(true);
+    brokerFetch<BrokerConnection[]>("/api/broker-connections")
+      .then(setBrokers)
+      .catch(() => {})
+      .finally(() => setBrokersLoading(false));
+  }, [activeSection]);
+
+  // ── Broker: add ───────────────────────────────────────────────────────────
+  const handleAddBroker = useCallback(async () => {
+    setAddBrokerSaving(true);
+    try {
+      const created = await brokerFetch<BrokerConnection>("/api/broker-connections", {
+        method: "POST",
+        body: JSON.stringify({
+          broker_name: "angel_one",
+          display_name: addBrokerForm.display_name || "Angel One",
+          api_key: addBrokerForm.api_key,
+          client_code: addBrokerForm.client_code,
+          pin: addBrokerForm.pin,
+        }),
+      });
+      setBrokers(prev => [created, ...prev]);
+      setAddBrokerForm({ display_name: "Angel One", api_key: "", client_code: "", pin: "" });
+      setShowAddBroker(false);
+      toast.success("Broker saved. Enter a TOTP to connect.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save broker");
+    } finally {
+      setAddBrokerSaving(false);
+    }
+  }, [addBrokerForm]);
+
+  // ── Broker: connect ───────────────────────────────────────────────────────
+  const handleBrokerConnect = useCallback(async (id: string) => {
+    const totp = brokerTotps[id] ?? "";
+    if (totp.length < 6) return;
+    setBrokerBusy(prev => ({ ...prev, [`connect:${id}`]: true }));
+    try {
+      await brokerFetch(`/api/broker-connections/${id}/connect`, {
+        method: "POST",
+        body: JSON.stringify({ totp_code: totp }),
+      });
+      setBrokerTotps(prev => { const n = { ...prev }; delete n[id]; return n; });
+      const list = await brokerFetch<BrokerConnection[]>("/api/broker-connections");
+      setBrokers(list);
+      toast.success("Connected successfully.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Connection failed");
+    } finally {
+      setBrokerBusy(prev => { const n = { ...prev }; delete n[`connect:${id}`]; return n; });
+    }
+  }, [brokerTotps]);
+
+  // ── Broker: disconnect ────────────────────────────────────────────────────
+  const handleBrokerDisconnect = useCallback(async (id: string) => {
+    setBrokerBusy(prev => ({ ...prev, [`disconnect:${id}`]: true }));
+    try {
+      await brokerFetch(`/api/broker-connections/${id}/disconnect`, { method: "POST" });
+      setBrokers(prev => prev.map(b =>
+        b.id === id ? { ...b, status: "disconnected" as const, token_generated_at: null } : b
+      ));
+      toast.info("Broker disconnected.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to disconnect");
+    } finally {
+      setBrokerBusy(prev => { const n = { ...prev }; delete n[`disconnect:${id}`]; return n; });
+    }
+  }, []);
+
+  // ── Broker: delete ────────────────────────────────────────────────────────
+  const handleBrokerDelete = useCallback(async (id: string) => {
+    setBrokerBusy(prev => ({ ...prev, [`delete:${id}`]: true }));
+    try {
+      await brokerFetch(`/api/broker-connections/${id}`, { method: "DELETE" });
+      setBrokers(prev => prev.filter(b => b.id !== id));
+      toast.success("Broker removed.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove broker");
+    } finally {
+      setBrokerBusy(prev => { const n = { ...prev }; delete n[`delete:${id}`]; return n; });
     }
   }, []);
 
@@ -685,6 +804,163 @@ export default function Settings() {
                 </div>
               </SectionCard>
             </div>
+          )}
+
+          {/* Broker Connect */}
+          {activeSection === "broker" && (
+            <SectionCard title="Broker Connections" icon={Plug}>
+              <div className="py-3 space-y-3">
+
+                {/* Loading */}
+                {brokersLoading && (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+
+                {/* Broker rows */}
+                {!brokersLoading && brokers.map(broker => {
+                  const totp = brokerTotps[broker.id] ?? "";
+                  const connecting    = brokerBusy[`connect:${broker.id}`]    ?? false;
+                  const disconnecting = brokerBusy[`disconnect:${broker.id}`] ?? false;
+                  const deleting      = brokerBusy[`delete:${broker.id}`]     ?? false;
+                  const needsTotp     = broker.status !== "connected";
+                  const dotCls        = broker.status === "connected"
+                    ? "bg-emerald-400"
+                    : broker.status === "expired"
+                    ? "bg-amber-400"
+                    : "bg-muted-foreground/30";
+                  const statusLabel   = broker.status === "connected"
+                    ? "Connected"
+                    : broker.status === "expired"
+                    ? "Session Expired"
+                    : "Disconnected";
+
+                  return (
+                    <div key={broker.id} className="rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
+                      {/* Header row */}
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-border/30">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotCls}`} />
+                          <span className="text-xs font-semibold truncate">{broker.display_name}</span>
+                          <span className="text-[10px] text-muted-foreground shrink-0">{statusLabel}</span>
+                        </div>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          {broker.status === "connected" && (
+                            <Button variant="ghost" size="icon" className="h-6 w-6" title="Disconnect" disabled={disconnecting}
+                              onClick={() => handleBrokerDisconnect(broker.id)}>
+                              {disconnecting ? <Loader2 className="h-3 w-3 animate-spin" /> : <LogOut className="h-3 w-3" />}
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="icon" className="h-6 w-6 hover:text-destructive" title="Remove" disabled={deleting}
+                            onClick={() => handleBrokerDelete(broker.id)}>
+                            {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Details + TOTP */}
+                      <div className="px-3 py-2 space-y-2">
+                        {broker.token_generated_at && (
+                          <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
+                            <div>
+                              <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Last Connected</span>
+                              {formatDate(broker.token_generated_at)}
+                            </div>
+                            <div>
+                              <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Session Valid Until</span>
+                              {(() => {
+                                const d = new Date(broker.token_generated_at);
+                                d.setHours(d.getHours() + 24);
+                                return formatDate(d.toISOString());
+                              })()}
+                            </div>
+                          </div>
+                        )}
+                        {needsTotp && (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={totp}
+                              onChange={e => setBrokerTotps(prev => ({ ...prev, [broker.id]: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
+                              placeholder="6-digit TOTP"
+                              maxLength={6}
+                              className="h-7 text-xs font-mono w-28 shrink-0 bg-input"
+                            />
+                            <Button size="sm" className="h-7 text-xs gap-1 px-3" disabled={totp.length < 6 || connecting}
+                              onClick={() => handleBrokerConnect(broker.id)}>
+                              {connecting
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : broker.status === "expired"
+                                ? <><RefreshCw className="h-3 w-3" />Reconnect</>
+                                : <><PlugZap className="h-3 w-3" />Connect</>}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Empty state */}
+                {!brokersLoading && brokers.length === 0 && !showAddBroker && (
+                  <p className="py-3 text-center text-xs text-muted-foreground/60">No brokers added yet.</p>
+                )}
+
+                {/* Add broker form */}
+                {showAddBroker && (
+                  <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Angel One — New Connection</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <p className="text-[10px] text-muted-foreground">Display Name</p>
+                        <Input value={addBrokerForm.display_name}
+                          onChange={e => setAddBrokerForm(f => ({ ...f, display_name: e.target.value }))}
+                          placeholder="Angel One" className="h-7 text-xs bg-input" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] text-muted-foreground">Client Code</p>
+                        <Input value={addBrokerForm.client_code}
+                          onChange={e => setAddBrokerForm(f => ({ ...f, client_code: e.target.value }))}
+                          placeholder="e.g. A123456" autoComplete="off" className="h-7 text-xs font-mono bg-input" />
+                      </div>
+                      <div className="col-span-2 space-y-1">
+                        <p className="text-[10px] text-muted-foreground">API Key</p>
+                        <Input value={addBrokerForm.api_key}
+                          onChange={e => setAddBrokerForm(f => ({ ...f, api_key: e.target.value }))}
+                          placeholder="SmartAPI key" autoComplete="off" className="h-7 text-xs font-mono bg-input" />
+                      </div>
+                      <div className="col-span-2 space-y-1">
+                        <p className="text-[10px] text-muted-foreground">PIN</p>
+                        <Input type="password" value={addBrokerForm.pin}
+                          onChange={e => setAddBrokerForm(f => ({ ...f, pin: e.target.value }))}
+                          placeholder="4-digit login PIN" autoComplete="new-password" className="h-7 text-xs bg-input" />
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground/60">Credentials are encrypted with AES-256-GCM before storage and never leave the server.</p>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <Button size="sm" variant="outline" className="h-7 text-xs px-3"
+                        onClick={() => setShowAddBroker(false)}>Cancel</Button>
+                      <Button size="sm" className="h-7 text-xs gap-1 px-3"
+                        disabled={!addBrokerForm.api_key || !addBrokerForm.client_code || !addBrokerForm.pin || addBrokerSaving}
+                        onClick={handleAddBroker}>
+                        {addBrokerSaving && <Loader2 className="h-3 w-3 animate-spin" />}
+                        Save Credentials
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Add button */}
+                {!showAddBroker && (
+                  <div className="pt-1 flex justify-end border-t border-border/30">
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 px-3 mt-2"
+                      onClick={() => setShowAddBroker(true)}>
+                      <Plus className="h-3 w-3" /> Add Broker
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </SectionCard>
           )}
         </div>
       </main>

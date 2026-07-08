@@ -25,7 +25,6 @@ const NAV_ITEMS = [
   { to: "/paper-trading", label: "Paper\nTrading", icon: Wallet },
   { to: "/saved-scan", label: "Saved\nScan", icon: BookMarked },
   { to: "/alerts", label: "Alerts", icon: Bell },
-  { to: "/broker-connections", label: "Broker\nConnect", icon: Plug },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
