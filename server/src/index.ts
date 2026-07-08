@@ -50,6 +50,7 @@ app.post("/api/auth/login", (req, res) => {
   res.cookie("bs_session", requiredKey, {
     httpOnly: true,
     sameSite: "strict",
+    secure: process.env.NODE_ENV === "production",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
   res.json({ ok: true });
