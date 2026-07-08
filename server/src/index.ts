@@ -3,7 +3,7 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import { statSync } from "fs";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, createHmac, randomBytes } from "crypto";
 import cookieParser from "cookie-parser";
 // IMPORTANT: db.ts must be imported first — it runs migration and
 // initialises all three databases before any route handlers run.
@@ -26,6 +26,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
+function signSession(key: string): string {
+  const nonce = randomBytes(16).toString("hex");
+  const sig = createHmac("sha256", key).update(nonce).digest("hex");
+  return `${nonce}.${sig}`;
+}
+
+function verifySession(token: string, key: string): boolean {
+  const parts = token.split(".");
+  if (parts.length !== 2) return false;
+  const [nonce, sig] = parts;
+  const expected = createHmac("sha256", key).update(nonce).digest("hex");
+  if (nonce.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }
 
 const app = express();
@@ -66,7 +81,7 @@ app.post("/api/auth/login", (req, res) => {
   if (!timingSafeEqual(Buffer.from(key), Buffer.from(requiredKey))) {
     res.status(401).json({ error: "Invalid key" }); return;
   }
-  res.cookie("bs_session", requiredKey, {
+  res.cookie("bs_session", signSession(requiredKey), {
     httpOnly: true,
     sameSite: "strict",
     secure: process.env.NODE_ENV === "production",
@@ -85,7 +100,7 @@ app.use("/api", (req, res, next) => {
   if (req.path === "/health") { next(); return; }
 
   const provided = req.cookies?.bs_session as string | undefined;
-  if (!provided || !safeEqual(provided, requiredKey)) {
+  if (!provided || !verifySession(provided, requiredKey)) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
