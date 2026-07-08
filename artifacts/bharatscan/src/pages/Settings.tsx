@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { User, Palette, Bell, ScanSearch, Database, FileInput, Shield, HardDrive, ChevronRight, Moon, Sun, Monitor, Check, Download, Upload, Loader2, Trash2, Plug, PlugZap, RefreshCw, LogOut, Plus } from "lucide-react";
+import { User, Palette, Bell, ScanSearch, Database, FileInput, Shield, HardDrive, ChevronRight, Moon, Sun, Monitor, Check, Download, Upload, Loader2, Trash2, Plug, PlugZap, RefreshCw, LogOut, Plus, ExternalLink } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -163,6 +163,7 @@ export default function Settings() {
   const [brokers, setBrokers] = useState<BrokerConnection[]>([]);
   const [brokersLoading, setBrokersLoading] = useState(false);
   const [showAddBroker, setShowAddBroker] = useState(false);
+  const [addBrokerType, setAddBrokerType] = useState<"angel_one" | "fyers">("angel_one");
   const [addBrokerForm, setAddBrokerForm] = useState({ display_name: "Angel One", api_key: "", client_code: "", pin: "" });
   const [addBrokerSaving, setAddBrokerSaving] = useState(false);
   const [brokerTotps, setBrokerTotps] = useState<Record<string, string>>({});
@@ -311,32 +312,37 @@ export default function Settings() {
   // ── Broker: add ───────────────────────────────────────────────────────────
   const handleAddBroker = useCallback(async () => {
     setAddBrokerSaving(true);
+    const defaultName = addBrokerType === "fyers" ? "Fyers" : "Angel One";
     try {
       const created = await brokerFetch<BrokerConnection>("/api/broker-connections", {
         method: "POST",
         body: JSON.stringify({
-          broker_name: "angel_one",
-          display_name: addBrokerForm.display_name || "Angel One",
+          broker_name: addBrokerType,
+          display_name: addBrokerForm.display_name || defaultName,
           api_key: addBrokerForm.api_key,
           client_code: addBrokerForm.client_code,
           pin: addBrokerForm.pin,
         }),
       });
       setBrokers(prev => [created, ...prev]);
-      setAddBrokerForm({ display_name: "Angel One", api_key: "", client_code: "", pin: "" });
+      setAddBrokerForm({ display_name: defaultName, api_key: "", client_code: "", pin: "" });
       setShowAddBroker(false);
-      toast.success("Broker saved. Enter a TOTP to connect.");
+      const hint = addBrokerType === "fyers"
+        ? "Fyers saved. Click 'Open Auth Page' to generate an auth code, then connect."
+        : "Broker saved. Enter a TOTP to connect.";
+      toast.success(hint);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save broker");
     } finally {
       setAddBrokerSaving(false);
     }
-  }, [addBrokerForm]);
+  }, [addBrokerForm, addBrokerType]);
 
   // ── Broker: connect ───────────────────────────────────────────────────────
   const handleBrokerConnect = useCallback(async (id: string) => {
     const totp = brokerTotps[id] ?? "";
-    if (totp.length < 6) return;
+    const isFyers = brokers.find(b => b.id === id)?.broker_name === "fyers";
+    if (isFyers ? !totp : totp.length < 6) return;
     setBrokerBusy(prev => ({ ...prev, [`connect:${id}`]: true }));
     try {
       await brokerFetch(`/api/broker-connections/${id}/connect`, {
@@ -367,6 +373,19 @@ export default function Settings() {
       toast.error(err instanceof Error ? err.message : "Failed to disconnect");
     } finally {
       setBrokerBusy(prev => { const n = { ...prev }; delete n[`disconnect:${id}`]; return n; });
+    }
+  }, []);
+
+  // ── Broker: open Fyers auth page ─────────────────────────────────────────
+  const handleGetFyersAuthUrl = useCallback(async (id: string) => {
+    setBrokerBusy(prev => ({ ...prev, [`authurl:${id}`]: true }));
+    try {
+      const { url } = await brokerFetch<{ url: string }>(`/api/broker-connections/${id}/auth-url`);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate auth URL");
+    } finally {
+      setBrokerBusy(prev => { const n = { ...prev }; delete n[`authurl:${id}`]; return n; });
     }
   }, []);
 
@@ -877,7 +896,44 @@ export default function Settings() {
                             </div>
                           </div>
                         )}
-                        {needsTotp && (
+                        {needsTotp && broker.broker_name === "fyers" && (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                              <span className="bg-muted rounded-full h-4 w-4 flex items-center justify-center text-[9px] font-bold shrink-0">1</span>
+                              Open the Fyers auth page and log in, then copy the auth code from the redirect URL.
+                            </div>
+                            <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 px-3 w-full"
+                              disabled={brokerBusy[`authurl:${broker.id}`] ?? false}
+                              onClick={() => handleGetFyersAuthUrl(broker.id)}>
+                              {brokerBusy[`authurl:${broker.id}`]
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <ExternalLink className="h-3 w-3" />}
+                              Open Fyers Auth Page
+                            </Button>
+                            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground pt-0.5">
+                              <span className="bg-muted rounded-full h-4 w-4 flex items-center justify-center text-[9px] font-bold shrink-0">2</span>
+                              Paste the <code className="font-mono">auth_code</code> from the redirect URL below.
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={totp}
+                                onChange={e => setBrokerTotps(prev => ({ ...prev, [broker.id]: e.target.value.trim() }))}
+                                placeholder="Paste auth_code here"
+                                className="h-7 text-xs font-mono bg-input flex-1 min-w-0"
+                              />
+                              <Button size="sm" className="h-7 text-xs gap-1 px-3 shrink-0"
+                                disabled={!totp || connecting}
+                                onClick={() => handleBrokerConnect(broker.id)}>
+                                {connecting
+                                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                                  : broker.status === "expired"
+                                  ? <><RefreshCw className="h-3 w-3" />Reconnect</>
+                                  : <><PlugZap className="h-3 w-3" />Connect</>}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                        {needsTotp && broker.broker_name !== "fyers" && (
                           <div className="flex items-center gap-2">
                             <Input
                               value={totp}
@@ -908,34 +964,81 @@ export default function Settings() {
 
                 {/* Add broker form */}
                 {showAddBroker && (
-                  <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Angel One — New Connection</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <p className="text-[10px] text-muted-foreground">Display Name</p>
-                        <Input value={addBrokerForm.display_name}
-                          onChange={e => setAddBrokerForm(f => ({ ...f, display_name: e.target.value }))}
-                          placeholder="Angel One" className="h-7 text-xs bg-input" />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-[10px] text-muted-foreground">Client Code</p>
-                        <Input value={addBrokerForm.client_code}
-                          onChange={e => setAddBrokerForm(f => ({ ...f, client_code: e.target.value }))}
-                          placeholder="e.g. A123456" autoComplete="off" className="h-7 text-xs font-mono bg-input" />
-                      </div>
-                      <div className="col-span-2 space-y-1">
-                        <p className="text-[10px] text-muted-foreground">API Key</p>
-                        <Input value={addBrokerForm.api_key}
-                          onChange={e => setAddBrokerForm(f => ({ ...f, api_key: e.target.value }))}
-                          placeholder="SmartAPI key" autoComplete="off" className="h-7 text-xs font-mono bg-input" />
-                      </div>
-                      <div className="col-span-2 space-y-1">
-                        <p className="text-[10px] text-muted-foreground">PIN</p>
-                        <Input type="password" value={addBrokerForm.pin}
-                          onChange={e => setAddBrokerForm(f => ({ ...f, pin: e.target.value }))}
-                          placeholder="4-digit login PIN" autoComplete="new-password" className="h-7 text-xs bg-input" />
-                      </div>
+                  <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
+                    {/* Broker type selector */}
+                    <div className="flex gap-1 p-0.5 rounded-md bg-muted/50 border border-border/50">
+                      {([["angel_one", "Angel One"], ["fyers", "Fyers"]] as const).map(([val, label]) => (
+                        <button key={val} type="button"
+                          className={`flex-1 text-[10px] font-semibold py-1 rounded transition-colors ${addBrokerType === val ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                          onClick={() => {
+                            setAddBrokerType(val);
+                            setAddBrokerForm({ display_name: val === "fyers" ? "Fyers" : "Angel One", api_key: "", client_code: "", pin: "" });
+                          }}>
+                          {label}
+                        </button>
+                      ))}
                     </div>
+
+                    {/* Angel One fields */}
+                    {addBrokerType === "angel_one" && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground">Display Name</p>
+                          <Input value={addBrokerForm.display_name}
+                            onChange={e => setAddBrokerForm(f => ({ ...f, display_name: e.target.value }))}
+                            placeholder="Angel One" className="h-7 text-xs bg-input" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground">Client Code</p>
+                          <Input value={addBrokerForm.client_code}
+                            onChange={e => setAddBrokerForm(f => ({ ...f, client_code: e.target.value }))}
+                            placeholder="e.g. A123456" autoComplete="off" className="h-7 text-xs font-mono bg-input" />
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                          <p className="text-[10px] text-muted-foreground">API Key (SmartAPI)</p>
+                          <Input value={addBrokerForm.api_key}
+                            onChange={e => setAddBrokerForm(f => ({ ...f, api_key: e.target.value }))}
+                            placeholder="SmartAPI key" autoComplete="off" className="h-7 text-xs font-mono bg-input" />
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                          <p className="text-[10px] text-muted-foreground">PIN</p>
+                          <Input type="password" value={addBrokerForm.pin}
+                            onChange={e => setAddBrokerForm(f => ({ ...f, pin: e.target.value }))}
+                            placeholder="4-digit login PIN" autoComplete="new-password" className="h-7 text-xs bg-input" />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Fyers fields */}
+                    {addBrokerType === "fyers" && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground">Display Name</p>
+                          <Input value={addBrokerForm.display_name}
+                            onChange={e => setAddBrokerForm(f => ({ ...f, display_name: e.target.value }))}
+                            placeholder="Fyers" className="h-7 text-xs bg-input" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground">App ID</p>
+                          <Input value={addBrokerForm.api_key}
+                            onChange={e => setAddBrokerForm(f => ({ ...f, api_key: e.target.value }))}
+                            placeholder="e.g. XY1234-100" autoComplete="off" className="h-7 text-xs font-mono bg-input" />
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                          <p className="text-[10px] text-muted-foreground">Secret Key</p>
+                          <Input type="password" value={addBrokerForm.client_code}
+                            onChange={e => setAddBrokerForm(f => ({ ...f, client_code: e.target.value }))}
+                            placeholder="App secret from Fyers API dashboard" autoComplete="new-password" className="h-7 text-xs font-mono bg-input" />
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                          <p className="text-[10px] text-muted-foreground">Redirect URI</p>
+                          <Input value={addBrokerForm.pin}
+                            onChange={e => setAddBrokerForm(f => ({ ...f, pin: e.target.value }))}
+                            placeholder="https://your-redirect-uri" autoComplete="off" className="h-7 text-xs font-mono bg-input" />
+                        </div>
+                      </div>
+                    )}
+
                     <p className="text-[10px] text-muted-foreground/60">Credentials are encrypted with AES-256-GCM before storage and never leave the server.</p>
                     <div className="flex justify-end gap-2 pt-1">
                       <Button size="sm" variant="outline" className="h-7 text-xs px-3"

@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { createHash } from "node:crypto";
 import { db } from "../db.js";
 import { encrypt, decrypt } from "../lib/encryption.js";
 
@@ -168,6 +169,35 @@ router.get("/:id/status", (req: Request, res: Response) => {
   });
 });
 
+// ── GET /api/broker-connections/:id/auth-url (Fyers only) ────────────────────
+
+router.get("/:id/auth-url", (req: Request, res: Response) => {
+  const row = oneRow(req.params.id);
+  if (!row) { res.status(404).json({ error: "Not found" }); return; }
+  if (row.broker_name !== "fyers") {
+    res.status(400).json({ error: "auth-url is only available for Fyers connections" });
+    return;
+  }
+
+  let appId: string, redirectUri: string;
+  try {
+    appId       = decrypt(row.api_key);   // api_key stores App ID for Fyers
+    redirectUri = decrypt(row.pin);       // pin stores Redirect URI for Fyers
+  } catch {
+    res.status(500).json({ error: "Failed to decrypt credentials" });
+    return;
+  }
+
+  const url =
+    `https://api-t1.fyers.in/api/v3/generate-authcode` +
+    `?client_id=${encodeURIComponent(appId)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&response_type=code` +
+    `&state=bharatscan`;
+
+  res.json({ url });
+});
+
 // ── POST /api/broker-connections/:id/connect ──────────────────────────────────
 
 router.post("/:id/connect", async (req: Request, res: Response) => {
@@ -191,42 +221,84 @@ router.post("/:id/connect", async (req: Request, res: Response) => {
     return;
   }
 
-  // Call Angel One SmartAPI
   let accessToken: string;
-  try {
-    const response = await fetch(
-      "https://apiconnect.angelone.in/rest/auth/angelbroking/user/v1/loginByPassword",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          "X-UserType": "USER",
-          "X-SourceID": "WEB",
-          "X-ClientLocalIP": "CLIENT_LOCAL_IP",
-          "X-ClientPublicIP": "CLIENT_PUBLIC_IP",
-          "X-MACAddress": "MAC_ADDRESS",
-          "X-PrivateKey": apiKey,
-        },
-        body: JSON.stringify({
-          clientcode: clientCode,
-          password: pin,
-          totp: totp_code.trim(),
-        }),
+
+  // ── Angel One SmartAPI ────────────────────────────────────────────────────
+  if (row.broker_name === "angel_one") {
+    try {
+      const response = await fetch(
+        "https://apiconnect.angelone.in/rest/auth/angelbroking/user/v1/loginByPassword",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-UserType": "USER",
+            "X-SourceID": "WEB",
+            "X-ClientLocalIP": "CLIENT_LOCAL_IP",
+            "X-ClientPublicIP": "CLIENT_PUBLIC_IP",
+            "X-MACAddress": "MAC_ADDRESS",
+            "X-PrivateKey": apiKey,
+          },
+          body: JSON.stringify({
+            clientcode: clientCode,
+            password: pin,
+            totp: totp_code.trim(),
+          }),
+        }
+      );
+
+      const data = (await response.json()) as { status: boolean; message: string; data?: { jwtToken?: string } };
+
+      if (!data.status || !data.data?.jwtToken) {
+        res.status(401).json({ error: data.message ?? "Angel One login failed" });
+        return;
       }
-    );
 
-    const data = (await response.json()) as { status: boolean; message: string; data?: { jwtToken?: string } };
-
-    if (!data.status || !data.data?.jwtToken) {
-      res.status(401).json({ error: data.message ?? "Angel One login failed" });
+      accessToken = data.data.jwtToken;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Network error contacting Angel One";
+      res.status(502).json({ error: msg });
       return;
     }
 
-    accessToken = data.data.jwtToken;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Network error contacting Angel One";
-    res.status(502).json({ error: msg });
+  // ── Fyers v3 ──────────────────────────────────────────────────────────────
+  } else if (row.broker_name === "fyers") {
+    // apiKey = App ID, clientCode = Secret Key, pin = Redirect URI (unused here)
+    const appIdHash = createHash("sha256")
+      .update(`${apiKey}:${clientCode}`)
+      .digest("hex");
+
+    try {
+      const response = await fetch(
+        "https://api-t1.fyers.in/api/v3/validate-authcode",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            grant_type: "authorization_code",
+            appIdHash,
+            code: totp_code.trim(),
+          }),
+        }
+      );
+
+      const data = (await response.json()) as { s: string; message?: string; access_token?: string };
+
+      if (data.s !== "ok" || !data.access_token) {
+        res.status(401).json({ error: data.message ?? "Fyers authentication failed" });
+        return;
+      }
+
+      accessToken = data.access_token;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Network error contacting Fyers";
+      res.status(502).json({ error: msg });
+      return;
+    }
+
+  } else {
+    res.status(400).json({ error: `Unsupported broker: ${row.broker_name}` });
     return;
   }
 
