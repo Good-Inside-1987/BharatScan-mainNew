@@ -566,6 +566,9 @@ importers:
       express:
         specifier: ^4.21.2
         version: 4.22.2
+      ws:
+        specifier: ^8.19.0
+        version: 8.21.0
     devDependencies:
       '@types/cookie-parser':
         specifier: ^1.4.10
@@ -579,6 +582,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.3.5
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       tsx:
         specifier: 'catalog:'
         version: 4.21.0
@@ -1560,6 +1566,9 @@ packages:
 
   '@types/serve-static@1.15.10':
     resolution: {integrity: sha512-tRs1dB+g8Itk72rlSI2ZrW6vZg0YrLI81iQSTkMmOqnqCaNr/8Ek4VwWcN5vZgCYWbg/JJSGBlUaYGAOP73qBw==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@vitejs/plugin-react@5.1.4':
     resolution: {integrity: sha512-VIcFLdRi/VYRU8OL/puL7QXMYafHmqOnwTZY50U1JPlCNj30PxCMx65c494b1K9be9hX83KVt0+gTEwTWLqToA==}
@@ -2779,6 +2788,18 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+  ws@8.21.0:
+    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
@@ -3839,6 +3860,10 @@ snapshots:
       '@types/http-errors': 2.0.5
       '@types/node': 25.3.5
       '@types/send': 0.17.6
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 25.3.5
 
   '@vitejs/plugin-react@5.1.4(vite@7.3.2(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0))':
     dependencies:
@@ -4991,6 +5016,8 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  ws@8.21.0: {}
 
   yallist@3.1.1: {}
 
