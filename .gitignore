@@ -62,5 +62,9 @@ Thumbs.db
 .cache/
 .local/
 
+# Electron
+electron/node_modules/
+electron/dist-electron/
+
 # PM2 logs
 logs/*.log

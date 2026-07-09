@@ -12,7 +12,10 @@
     "start": "node server/dist/index.js",
     "start:scheduler": "node server/dist/scheduler/standalone.js",
     "build:server": "cd server && pnpm build",
-    "build:frontend": "cd artifacts/bharatscan && pnpm build"
+    "build:frontend": "cd artifacts/bharatscan && pnpm build",
+    "electron:install": "pnpm --dir electron install",
+    "electron:dev": "concurrently --kill-others-on-fail --names \"vite,electron\" -c \"cyan,magenta\" \"pnpm --filter @workspace/bharatscan run dev\" \"pnpm --dir electron run dev\"",
+    "electron:build": "pnpm run build:frontend && pnpm run build:server && pnpm --dir electron run build"
   },
   "private": true,
   "devDependencies": {

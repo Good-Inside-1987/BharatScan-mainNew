@@ -1,0 +1,59 @@
+{
+  "name": "bharatscan-electron",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BharatScan desktop app — Electron wrapper around the Express backend and React frontend",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.bharatscan.app",
+    "productName": "BharatScan",
+    "copyright": "Copyright © 2024 BharatScan",
+    "directories": {
+      "buildResources": "assets",
+      "output": "dist-electron"
+    },
+    "files": [
+      "main.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../server/dist",
+        "to": "server-dist",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../artifacts/bharatscan/dist/public",
+        "to": "artifacts/bharatscan/dist/public",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] }
+      ]
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
