@@ -144,6 +144,52 @@ export async function parseBackupFile(file: File): Promise<BackupFile> {
   return backup;
 }
 
+export type CurrentDataSummary = Omit<BackupSummary, "createdAt" | "version">;
+
+export async function summarizeCurrentData(): Promise<CurrentDataSummary> {
+  const [scans, settings, dashboards, portfolios, alerts, scannerDashboards, paperAccounts] =
+    await Promise.all([
+      apiListScans(),
+      apiGetSettings(),
+      apiListDashboards(),
+      apiListPortfolios(),
+      apiListAlerts(),
+      apiListScannerDashboards(),
+      apiExportPaperAccounts(),
+    ]);
+
+  const perPortfolio = await Promise.all(
+    portfolios.map(async (p) => ({
+      holdings: await apiListHoldings(p.id),
+      booked_trades: await apiListBookedTrades(p.id),
+    }))
+  );
+
+  let lsCount = 0;
+  for (const key of Object.keys(localStorage)) {
+    const matchesFixed = LS_BACKUP_KEYS.includes(key);
+    const matchesPrefix = LS_BACKUP_PREFIXES.some((prefix) => key.startsWith(prefix));
+    if (matchesFixed || matchesPrefix) lsCount++;
+  }
+
+  return {
+    scans: scans.length,
+    favoriteScans: scans.filter((s) => s.is_favorite).length,
+    dashboards: dashboards.length,
+    portfolios: portfolios.length,
+    holdings: perPortfolio.reduce((sum, p) => sum + p.holdings.length, 0),
+    bookedTrades: perPortfolio.reduce((sum, p) => sum + p.booked_trades.length, 0),
+    alerts: alerts.length,
+    scannerDashboards: scannerDashboards.length,
+    scannerScans: scannerDashboards.reduce((sum, sd) => sum + (sd.scans?.length ?? 0), 0),
+    paperAccounts: paperAccounts.length,
+    paperPositions: paperAccounts.reduce((sum, a) => sum + (a.positions?.length ?? 0), 0),
+    paperTrades: paperAccounts.reduce((sum, a) => sum + (a.trades?.length ?? 0), 0),
+    settings: Object.keys(settings ?? {}).length,
+    localPreferences: lsCount,
+  };
+}
+
 export function summarizeBackup(backup: BackupFile): BackupSummary {
   return {
     createdAt: backup.createdAt,
