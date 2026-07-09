@@ -5,6 +5,24 @@ import { encrypt, decrypt } from "../lib/encryption.js";
 
 const router = Router();
 
+// ── Connect rate limiter ───────────────────────────────────────────────────────
+
+const connectAttempts = new Map<string,
+  { count: number; resetAt: number }>();
+
+function checkConnectLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = connectAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    connectAttempts.set(ip,
+      { count: 1, resetAt: now + 15 * 60 * 1000 });
+    return true;
+  }
+  if (entry.count >= 10) return false;
+  entry.count++;
+  return true;
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface BrokerRow {
@@ -65,6 +83,16 @@ router.post("/", (req: Request, res: Response) => {
 
   if (!broker_name || !display_name || !api_key || !client_code || !pin) {
     res.status(400).json({ error: "broker_name, display_name, api_key, client_code and pin are required" });
+    return;
+  }
+
+  const ALLOWED_BROKERS = [
+    "angel_one", "fyers", "upstox", "shoonya", "dhan", "zerodha"
+  ];
+  if (!ALLOWED_BROKERS.includes(broker_name)) {
+    res.status(400).json({
+      error: `Unsupported broker. Allowed values: ${ALLOWED_BROKERS.join(", ")}`
+    });
     return;
   }
 
@@ -201,12 +229,20 @@ router.get("/:id/auth-url", (req: Request, res: Response) => {
 // ── POST /api/broker-connections/:id/connect ──────────────────────────────────
 
 router.post("/:id/connect", async (req: Request, res: Response) => {
+  const ip = req.ip ?? "unknown";
+  if (!checkConnectLimit(ip)) {
+    res.status(429).json({
+      error: "Too many connection attempts. Try again in 15 minutes."
+    });
+    return;
+  }
+
   const row = oneRow(req.params.id);
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
 
   const { totp_code } = req.body as { totp_code?: string };
-  if (!totp_code || totp_code.trim().length === 0) {
-    res.status(400).json({ error: "totp_code is required" });
+  if (!totp_code || !/^\d{6}$/.test(totp_code.trim())) {
+    res.status(400).json({ error: "totp_code must be exactly 6 digits" });
     return;
   }
 
@@ -235,9 +271,9 @@ router.post("/:id/connect", async (req: Request, res: Response) => {
             "Accept": "application/json",
             "X-UserType": "USER",
             "X-SourceID": "WEB",
-            "X-ClientLocalIP": "CLIENT_LOCAL_IP",
-            "X-ClientPublicIP": "CLIENT_PUBLIC_IP",
-            "X-MACAddress": "MAC_ADDRESS",
+            "X-ClientLocalIP": req.ip ?? "127.0.0.1",
+            "X-ClientPublicIP": req.ip ?? "127.0.0.1",
+            "X-MACAddress": "00:00:00:00:00:00",
             "X-PrivateKey": apiKey,
           },
           body: JSON.stringify({
