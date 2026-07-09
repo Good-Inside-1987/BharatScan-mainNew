@@ -18,6 +18,7 @@ import alertsRouter from "./routes/alerts.js";
 import paperTradingRouter from "./routes/paperTrading.js";
 import { getServiceStats } from "./services/marketDataService.js";
 import brokerConnectionsRouter from "./routes/brokerConnections.js";
+import marketDataRouter from "./routes/marketData.js";
 
 void appDb;
 void marketDb;
@@ -125,6 +126,7 @@ app.use("/api/scanner-dashboards", scannerDashboardsRouter);
 app.use("/api/alerts", alertsRouter);
 app.use("/api/paper-trading", paperTradingRouter);
 app.use("/api/broker-connections", brokerConnectionsRouter);
+app.use("/api/market-data", marketDataRouter);
 
 app.get("/api/health", (_req, res) => {
   const meta = db
