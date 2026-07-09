@@ -111,12 +111,26 @@ export async function createBackup(): Promise<void> {
   localStorage.setItem(LAST_BACKUP_KEY, now);
 }
 
-export async function restoreBackup(
-  file: File,
-  onProgress?: (msg: string) => void
-): Promise<void> {
-  const log = (msg: string) => onProgress?.(msg);
+export interface BackupSummary {
+  createdAt: string;
+  version: number;
+  scans: number;
+  favoriteScans: number;
+  dashboards: number;
+  portfolios: number;
+  holdings: number;
+  bookedTrades: number;
+  alerts: number;
+  scannerDashboards: number;
+  scannerScans: number;
+  paperAccounts: number;
+  paperPositions: number;
+  paperTrades: number;
+  settings: number;
+  localPreferences: number;
+}
 
+export async function parseBackupFile(file: File): Promise<BackupFile> {
   const text = await file.text();
   let backup: BackupFile;
   try {
@@ -127,6 +141,37 @@ export async function restoreBackup(
   if (!backup.version || !backup.createdAt) {
     throw new Error("Invalid backup file — missing version or createdAt.");
   }
+  return backup;
+}
+
+export function summarizeBackup(backup: BackupFile): BackupSummary {
+  return {
+    createdAt: backup.createdAt,
+    version: backup.version,
+    scans: backup.scans?.length ?? 0,
+    favoriteScans: backup.scans?.filter((s) => s.is_favorite).length ?? 0,
+    dashboards: backup.dashboards?.length ?? 0,
+    portfolios: backup.portfolios?.length ?? 0,
+    holdings: backup.portfolios?.reduce((sum, p) => sum + (p.holdings?.length ?? 0), 0) ?? 0,
+    bookedTrades: backup.portfolios?.reduce((sum, p) => sum + (p.booked_trades?.length ?? 0), 0) ?? 0,
+    alerts: backup.alerts?.length ?? 0,
+    scannerDashboards: backup.scannerDashboards?.length ?? 0,
+    scannerScans: backup.scannerDashboards?.reduce((sum, sd) => sum + (sd.scans?.length ?? 0), 0) ?? 0,
+    paperAccounts: backup.paperAccounts?.length ?? 0,
+    paperPositions: backup.paperAccounts?.reduce((sum, a) => sum + (a.positions?.length ?? 0), 0) ?? 0,
+    paperTrades: backup.paperAccounts?.reduce((sum, a) => sum + (a.trades?.length ?? 0), 0) ?? 0,
+    settings: Object.keys(backup.settings ?? {}).length,
+    localPreferences: Object.keys(backup.localStorage ?? {}).length,
+  };
+}
+
+export async function restoreBackup(
+  file: File,
+  onProgress?: (msg: string) => void
+): Promise<void> {
+  const log = (msg: string) => onProgress?.(msg);
+
+  const backup = await parseBackupFile(file);
 
   log("Clearing existing data…");
 

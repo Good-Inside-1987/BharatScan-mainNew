@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { useTheme, type AccentColor } from "@/hooks/useTheme";
 import { DataSourcePanels } from "@/components/DataSourcePanels";
 import { MarketApiPanel } from "@/components/MarketApiPanel";
-import { createBackup, restoreBackup, getLastBackupTime } from "@/lib/backup";
+import { createBackup, restoreBackup, getLastBackupTime, parseBackupFile, summarizeBackup, type BackupSummary } from "@/lib/backup";
 import {
   apiGetSettings, apiSaveSetting,
   apiListScans, apiCreateScan, apiDeleteScan, apiToggleFavorite,
@@ -177,6 +177,8 @@ export default function Settings() {
   const [restoreLog, setRestoreLog] = useState<string[]>([]);
   const [lastBackup, setLastBackup] = useState<string | null>(getLastBackupTime);
   const restoreInputRef = useRef<HTMLInputElement>(null);
+  const [pendingRestore, setPendingRestore] = useState<{ file: File; summary: BackupSummary } | null>(null);
+  const [restorePreviewError, setRestorePreviewError] = useState<string | null>(null);
 
   // ── Broker connections ─────────────────────────────────────────────────────
   const [brokers, setBrokers] = useState<BrokerConnection[]>([]);
@@ -448,6 +450,21 @@ export default function Settings() {
     if (!file) return;
     e.target.value = "";
 
+    setRestorePreviewError(null);
+    try {
+      const backup = await parseBackupFile(file);
+      setPendingRestore({ file, summary: summarizeBackup(backup) });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setRestorePreviewError(msg);
+      toast.error(`Could not read backup file: ${msg}`);
+    }
+  }
+
+  async function handleConfirmRestore() {
+    if (!pendingRestore) return;
+    const { file } = pendingRestore;
+    setPendingRestore(null);
     setRestoreBusy(true);
     setRestoreLog([]);
     try {
@@ -849,6 +866,64 @@ export default function Settings() {
                   </div>
                 </div>
               </SectionCard>
+            </div>
+          )}
+
+          {/* Restore preview / confirmation dialog */}
+          {pendingRestore && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+              <Card className="w-[26rem] p-4 space-y-3 shadow-xl border-destructive/30">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-destructive/10 shrink-0">
+                    <Upload className="h-5 w-5 text-destructive-bright" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">Restore This Backup?</h3>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Created {formatDate(pendingRestore.summary.createdAt)} · format v{pendingRestore.summary.version}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] py-1">
+                  {[
+                    { label: "Saved scans", value: pendingRestore.summary.scans, hint: pendingRestore.summary.favoriteScans ? `${pendingRestore.summary.favoriteScans} favorited` : undefined },
+                    { label: "Portfolio dashboards", value: pendingRestore.summary.dashboards },
+                    { label: "Portfolios", value: pendingRestore.summary.portfolios },
+                    { label: "Holdings", value: pendingRestore.summary.holdings },
+                    { label: "Booked trades", value: pendingRestore.summary.bookedTrades },
+                    { label: "Price alerts", value: pendingRestore.summary.alerts },
+                    { label: "Scanner dashboards", value: pendingRestore.summary.scannerDashboards },
+                    { label: "Scanner scans", value: pendingRestore.summary.scannerScans },
+                    { label: "Paper trading accounts", value: pendingRestore.summary.paperAccounts },
+                    { label: "Paper positions & trades", value: pendingRestore.summary.paperPositions + pendingRestore.summary.paperTrades },
+                    { label: "Settings", value: pendingRestore.summary.settings },
+                    { label: "Local preferences", value: pendingRestore.summary.localPreferences },
+                  ].map((row) => (
+                    <div key={row.label} className="flex items-center justify-between border-b border-border/40 py-1">
+                      <span className="text-muted-foreground">{row.label}</span>
+                      <span className="text-foreground font-medium">
+                        {row.value}{row.hint ? <span className="text-muted-foreground font-normal"> ({row.hint})</span> : null}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-[11px] text-destructive flex items-start gap-2">
+                  <span className="shrink-0 mt-0.5">⚠️</span>
+                  <span>This will permanently replace all current data with the contents above. This cannot be undone.</span>
+                </div>
+
+                <div className="flex gap-2 justify-end">
+                  <Button size="sm" variant="outline" className="text-xs h-7 px-3" onClick={() => setPendingRestore(null)}>
+                    Cancel
+                  </Button>
+                  <Button size="sm" className="text-xs h-7 px-3 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={handleConfirmRestore}>
+                    <Upload className="h-3 w-3" /> Yes, Restore
+                  </Button>
+                </div>
+              </Card>
             </div>
           )}
 
