@@ -536,3 +536,29 @@ export const apiClosePaperPosition = (
 
 export const apiListPaperTrades = (accountId: string) =>
   request<ApiPaperTrade[]>(`/paper-trading/accounts/${accountId}/trades`);
+
+// ── Paper Trading: bulk export / import (used by app-wide backup/restore) ─────
+
+export interface ApiPaperAccountExport extends ApiPaperAccount {
+  positions: ApiPaperPosition[];
+  trades: ApiPaperTrade[];
+}
+
+export const apiExportPaperAccounts = () =>
+  request<ApiPaperAccountExport[]>("/paper-trading/export");
+
+export interface ImportPaperAccountsPayload {
+  accounts: Array<{
+    name: string;
+    starting_balance: number;
+    cash_balance: number;
+    positions?: Array<Omit<ApiPaperPosition, "id" | "account_id">>;
+    trades?: Array<Omit<ApiPaperTrade, "id" | "account_id" | "position_id">>;
+  }>;
+}
+
+export const apiImportPaperAccounts = (body: ImportPaperAccountsPayload) =>
+  request<{ imported: number; account_ids: string[] }>("/paper-trading/import", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });

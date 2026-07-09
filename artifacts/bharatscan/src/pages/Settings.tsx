@@ -765,13 +765,14 @@ export default function Settings() {
               <SectionCard title="Create Backup" icon={Download}>
                 <div className="py-3 space-y-3">
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Downloads a complete <span className="text-foreground font-medium">.json</span> file containing all your saved scans, portfolios, dashboards, alerts, scanner dashboards, app settings, and local preferences. Keep it safe — you can restore everything from this file.
+                    Downloads a complete <span className="text-foreground font-medium">.json</span> file containing all your saved scans, portfolios, dashboards, alerts, scanner dashboards, paper trading accounts, app settings, and local preferences. Keep it safe — you can restore everything from this file.
                   </p>
 
                   <div className="grid grid-cols-2 gap-3 text-[11px]">
                     {[
                       "Saved scans", "Portfolio dashboards", "Holdings & trades",
-                      "Price alerts", "Scanner dashboards", "App settings & preferences",
+                      "Price alerts", "Scanner dashboards", "Paper trading accounts",
+                      "App settings & preferences",
                     ].map((item) => (
                       <div key={item} className="flex items-center gap-1.5 text-muted-foreground">
                         <Check className="h-3 w-3 text-success shrink-0" />

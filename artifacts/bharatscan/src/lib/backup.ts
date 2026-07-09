@@ -8,8 +8,10 @@ import {
   apiListAlerts, apiCreateAlert, apiDeleteAlert, apiToggleAlert,
   apiListScannerDashboards, apiCreateScannerDashboard, apiDeleteScannerDashboard,
   apiCreateScannerScan,
+  apiExportPaperAccounts, apiImportPaperAccounts,
   type ApiScan, type ApiDashboard, type ApiPortfolio, type ApiHolding,
   type ApiBookedTrade, type ApiAlert, type ApiScannerDashboard,
+  type ApiPaperAccountExport,
 } from "./api";
 
 const LS_BACKUP_KEYS = [
@@ -19,9 +21,15 @@ const LS_BACKUP_KEYS = [
   "bharatscan:universe-categories",
   "bharatscan:market-holidays",
   "bharatscan:market-quotes",
+  "bharatscan:show-saved-scans",
+  "bharatscan:home-index-source",
   "bs:api-url",
   "bs:api-last-sync",
 ];
+
+// Prefixes for dynamically-keyed localStorage entries (one per dashboard/portfolio
+// etc.) that can't be enumerated as fixed keys up front.
+const LS_BACKUP_PREFIXES = ["pnl_visible_"];
 
 const LAST_BACKUP_KEY = "bharatscan:last-backup";
 
@@ -31,7 +39,7 @@ export interface PortfolioBackup extends ApiPortfolio {
 }
 
 export interface BackupFile {
-  version: 2;
+  version: 3;
   createdAt: string;
   scans: ApiScan[];
   settings: Record<string, string>;
@@ -39,6 +47,7 @@ export interface BackupFile {
   portfolios: PortfolioBackup[];
   alerts: ApiAlert[];
   scannerDashboards: ApiScannerDashboard[];
+  paperAccounts: ApiPaperAccountExport[];
   localStorage: Record<string, string>;
 }
 
@@ -47,7 +56,7 @@ export function getLastBackupTime(): string | null {
 }
 
 export async function createBackup(): Promise<void> {
-  const [scans, settings, dashboards, portfolios, alerts, scannerDashboards] =
+  const [scans, settings, dashboards, portfolios, alerts, scannerDashboards, paperAccounts] =
     await Promise.all([
       apiListScans(),
       apiGetSettings(),
@@ -55,6 +64,7 @@ export async function createBackup(): Promise<void> {
       apiListPortfolios(),
       apiListAlerts(),
       apiListScannerDashboards(),
+      apiExportPaperAccounts(),
     ]);
 
   const portfolioData: PortfolioBackup[] = await Promise.all(
@@ -66,13 +76,16 @@ export async function createBackup(): Promise<void> {
   );
 
   const lsData: Record<string, string> = {};
-  for (const key of LS_BACKUP_KEYS) {
+  for (const key of Object.keys(localStorage)) {
+    const matchesFixed = LS_BACKUP_KEYS.includes(key);
+    const matchesPrefix = LS_BACKUP_PREFIXES.some((prefix) => key.startsWith(prefix));
+    if (!matchesFixed && !matchesPrefix) continue;
     const val = localStorage.getItem(key);
     if (val !== null) lsData[key] = val;
   }
 
   const backup: BackupFile = {
-    version: 2,
+    version: 3,
     createdAt: new Date().toISOString(),
     scans,
     settings,
@@ -80,6 +93,7 @@ export async function createBackup(): Promise<void> {
     portfolios: portfolioData,
     alerts,
     scannerDashboards,
+    paperAccounts,
     localStorage: lsData,
   };
 
@@ -223,6 +237,19 @@ export async function restoreBackup(
         }).catch(() => {});
       }
     } catch {}
+  }
+
+  log("Restoring paper trading accounts…");
+  if (backup.paperAccounts?.length) {
+    await apiImportPaperAccounts({
+      accounts: backup.paperAccounts.map((a) => ({
+        name: a.name,
+        starting_balance: a.starting_balance,
+        cash_balance: a.cash_balance,
+        positions: (a.positions ?? []).map(({ id: _id, account_id: _accountId, ...rest }) => rest),
+        trades: (a.trades ?? []).map(({ id: _id, account_id: _accountId, position_id: _positionId, ...rest }) => rest),
+      })),
+    }).catch(() => {});
   }
 
   log("Restoring local preferences…");

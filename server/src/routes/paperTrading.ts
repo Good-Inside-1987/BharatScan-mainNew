@@ -265,4 +265,75 @@ router.get("/accounts/:id/trades", (req: Request, res: Response) => {
   res.json(rows);
 });
 
+// ── Bulk Export / Import (used by app-wide backup/restore) ───────────────────
+
+router.get("/export", (_req: Request, res: Response) => {
+  const accounts = db.prepare("SELECT * FROM paper_accounts ORDER BY created_at ASC").all() as unknown as PaperAccountRow[];
+  const data = accounts.map((a) => ({
+    ...a,
+    positions: db.prepare("SELECT * FROM paper_positions WHERE account_id = ?").all(a.id) as unknown as PaperPositionRow[],
+    trades: db.prepare("SELECT * FROM paper_trades WHERE account_id = ?").all(a.id) as unknown as PaperTradeRow[],
+  }));
+  res.json(data);
+});
+
+router.post("/import", (req: Request, res: Response) => {
+  const { accounts } = req.body as {
+    accounts?: Array<{
+      name: string;
+      starting_balance: number;
+      cash_balance: number;
+      positions?: Array<Omit<PaperPositionRow, "id" | "account_id">>;
+      trades?: Array<Omit<PaperTradeRow, "id" | "account_id" | "position_id">>;
+    }>;
+  };
+  if (!Array.isArray(accounts) || accounts.length === 0) {
+    res.status(400).json({ error: "accounts array is required" });
+    return;
+  }
+  const now = new Date().toISOString();
+  const created: string[] = [];
+  try {
+    db.exec("BEGIN");
+    db.prepare("DELETE FROM paper_accounts").run();
+    for (const a of accounts) {
+      if (!a.name?.trim()) continue;
+      const accountId = crypto.randomUUID();
+      db.prepare(
+        "INSERT INTO paper_accounts (id, name, starting_balance, cash_balance, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(accountId, a.name.trim(), Number(a.starting_balance) || 0, Number(a.cash_balance) || 0, now, now);
+      for (const p of a.positions ?? []) {
+        db.prepare(
+          `INSERT INTO paper_positions
+            (id, account_id, instrument_type, symbol, underlying, strike, option_type, expiry, side, qty, lot_size, entry_price, entry_date, margin_blocked, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          crypto.randomUUID(), accountId, p.instrument_type, p.symbol, p.underlying ?? null,
+          p.strike ?? null, p.option_type ?? null, p.expiry ?? null, p.side, Number(p.qty),
+          Number(p.lot_size) || 1, Number(p.entry_price), p.entry_date, Number(p.margin_blocked) || 0,
+          p.status ?? "open", now, now
+        );
+      }
+      for (const t of a.trades ?? []) {
+        db.prepare(
+          `INSERT INTO paper_trades
+            (id, account_id, position_id, instrument_type, symbol, underlying, strike, option_type, expiry, side, qty, lot_size, entry_price, exit_price, entry_date, exit_date, realized_pnl, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          crypto.randomUUID(), accountId, null, t.instrument_type, t.symbol, t.underlying ?? null,
+          t.strike ?? null, t.option_type ?? null, t.expiry ?? null, t.side, Number(t.qty),
+          Number(t.lot_size) || 1, Number(t.entry_price), Number(t.exit_price), t.entry_date,
+          t.exit_date, Number(t.realized_pnl) || 0, now
+        );
+      }
+      created.push(accountId);
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  res.status(201).json({ imported: created.length, account_ids: created });
+});
+
 export default router;
