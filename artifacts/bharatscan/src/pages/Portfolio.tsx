@@ -1658,8 +1658,53 @@ function DashboardListView({ onOpen }: { onOpen: (d: ApiDashboard) => void }) {
     reader.onload = (ev) => {
       try {
         const json = JSON.parse(ev.target?.result as string);
-        // v2 format: { version: 2, dashboards: [...] }
-        if (json.version === 2 && Array.isArray(json.dashboards) && json.dashboards.length > 0) {
+        // Full app backup format (Settings → Backup/Restore): dashboards and
+        // portfolios are separate top-level arrays, portfolios reference their
+        // dashboard via dashboard_id rather than being nested inside it.
+        if (
+          json.version === 2 &&
+          Array.isArray(json.dashboards) &&
+          Array.isArray(json.portfolios) &&
+          ("scans" in json || "settings" in json)
+        ) {
+          const portfoliosByDashboard = new Map<string, ImportPortfolioPayload["portfolios"]>();
+          const unassigned: ImportPortfolioPayload["portfolios"] = [];
+          for (const p of json.portfolios as Array<{
+            dashboard_id?: string | null;
+            name: string;
+            notes?: string;
+            holdings?: ImportPortfolioPayload["portfolios"][number]["holdings"];
+            booked_trades?: ImportPortfolioPayload["portfolios"][number]["booked_trades"];
+          }>) {
+            const entry = { name: p.name, notes: p.notes, holdings: p.holdings ?? [], booked_trades: p.booked_trades ?? [] };
+            if (p.dashboard_id) {
+              if (!portfoliosByDashboard.has(p.dashboard_id)) portfoliosByDashboard.set(p.dashboard_id, []);
+              portfoliosByDashboard.get(p.dashboard_id)!.push(entry);
+            } else {
+              unassigned.push(entry);
+            }
+          }
+          const rebuiltDashboards = (json.dashboards as Array<{ id: string; name?: string; color?: string }>).map((d) => ({
+            name: d.name ?? "Unnamed",
+            color: d.color ?? DASHBOARD_COLORS[0],
+            portfolios: portfoliosByDashboard.get(d.id) ?? [],
+          }));
+          if (unassigned.length > 0) {
+            rebuiltDashboards.push({
+              name: `Imported Portfolios ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}`,
+              color: DASHBOARD_COLORS[2],
+              portfolios: unassigned,
+            });
+          }
+          if (rebuiltDashboards.length === 0 || rebuiltDashboards.every((d) => d.portfolios.length === 0)) {
+            toast.error("No portfolios found in backup file");
+            return;
+          }
+          setPendingImport({
+            dashboards: rebuiltDashboards,
+            names: rebuiltDashboards.map((d) => d.name),
+          });
+        } else if (json.version === 2 && Array.isArray(json.dashboards) && json.dashboards.length > 0) {
           setPendingImport({
             dashboards: json.dashboards,
             names: json.dashboards.map((d: { name?: string }) => d.name ?? "Unnamed"),
