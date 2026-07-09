@@ -241,8 +241,11 @@ router.post("/:id/connect", async (req: Request, res: Response) => {
   if (!row) { res.status(404).json({ error: "Not found" }); return; }
 
   const { totp_code } = req.body as { totp_code?: string };
-  if (!totp_code || !/^\d{6}$/.test(totp_code.trim())) {
-    res.status(400).json({ error: "totp_code must be exactly 6 digits" });
+  const isTotpBroker = row.broker_name === "angel_one";
+  if (!totp_code || (isTotpBroker ? !/^\d{6}$/.test(totp_code.trim()) : !totp_code.trim())) {
+    res.status(400).json({
+      error: isTotpBroker ? "totp_code must be exactly 6 digits" : "totp_code is required"
+    });
     return;
   }
 
