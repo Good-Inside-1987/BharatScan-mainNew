@@ -84,15 +84,34 @@ function SectionCard({ title, icon: Icon, children }: { title: string; icon: Rea
 
 // ── Broker Connection types & helpers ─────────────────────────────────────────
 
+type BrokerStatus =
+  | "connected"
+  | "disconnected"
+  | "waiting_totp"
+  | "session_expired"
+  | "invalid_credentials"
+  | "login_failed"
+  | "broker_unavailable";
+
 interface BrokerConnection {
   id: string;
   broker_name: string;
   display_name: string;
-  status: "connected" | "expired" | "disconnected";
+  status: BrokerStatus;
   token_generated_at: string | null;
   created_at: string;
   updated_at: string;
 }
+
+const BROKER_STATUS_META: Record<BrokerStatus, { label: string; dotCls: string; textCls: string }> = {
+  connected:            { label: "Connected",          dotCls: "bg-emerald-400",  textCls: "text-emerald-400" },
+  disconnected:         { label: "Disconnected",       dotCls: "bg-muted-foreground/30", textCls: "text-muted-foreground" },
+  waiting_totp:         { label: "Waiting for Auth",   dotCls: "bg-sky-400",      textCls: "text-sky-400" },
+  session_expired:      { label: "Session Expired",    dotCls: "bg-amber-400",    textCls: "text-amber-400" },
+  invalid_credentials:  { label: "Invalid Credentials",dotCls: "bg-destructive",  textCls: "text-destructive-bright" },
+  login_failed:         { label: "Login Failed",       dotCls: "bg-destructive",  textCls: "text-destructive-bright" },
+  broker_unavailable:   { label: "Broker Unavailable", dotCls: "bg-orange-400",   textCls: "text-orange-400" },
+};
 
 async function brokerFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -354,6 +373,13 @@ export default function Settings() {
       setBrokers(list);
       toast.success("Connected successfully.");
     } catch (err) {
+      // The connect endpoint persists the explicit failure state (invalid
+      // credentials / login failed / broker unavailable) server-side even
+      // on error — refresh the list so the row reflects it immediately.
+      try {
+        const list = await brokerFetch<BrokerConnection[]>("/api/broker-connections");
+        setBrokers(list);
+      } catch { /* ignore — fall through to toast below */ }
       toast.error(err instanceof Error ? err.message : "Connection failed");
     } finally {
       setBrokerBusy(prev => { const n = { ...prev }; delete n[`connect:${id}`]; return n; });
@@ -844,25 +870,21 @@ export default function Settings() {
                   const disconnecting = brokerBusy[`disconnect:${broker.id}`] ?? false;
                   const deleting      = brokerBusy[`delete:${broker.id}`]     ?? false;
                   const needsTotp     = broker.status !== "connected";
-                  const dotCls        = broker.status === "connected"
-                    ? "bg-emerald-400"
-                    : broker.status === "expired"
-                    ? "bg-amber-400"
-                    : "bg-muted-foreground/30";
-                  const statusLabel   = broker.status === "connected"
-                    ? "Connected"
-                    : broker.status === "expired"
-                    ? "Session Expired"
-                    : "Disconnected";
+                  const meta          = BROKER_STATUS_META[broker.status] ?? BROKER_STATUS_META.disconnected;
+                  const isRetryable   =
+                    broker.status === "session_expired" ||
+                    broker.status === "invalid_credentials" ||
+                    broker.status === "login_failed" ||
+                    broker.status === "broker_unavailable";
 
                   return (
                     <div key={broker.id} className="rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
                       {/* Header row */}
                       <div className="flex items-center justify-between px-3 py-2 border-b border-border/30">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotCls}`} />
+                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${meta.dotCls}`} />
                           <span className="text-xs font-semibold truncate">{broker.display_name}</span>
-                          <span className="text-[10px] text-muted-foreground shrink-0">{statusLabel}</span>
+                          <span className={`text-[10px] shrink-0 font-medium ${meta.textCls}`}>{meta.label}</span>
                         </div>
                         <div className="flex items-center gap-0.5 shrink-0">
                           {broker.status === "connected" && (
@@ -926,31 +948,53 @@ export default function Settings() {
                                 onClick={() => handleBrokerConnect(broker.id)}>
                                 {connecting
                                   ? <Loader2 className="h-3 w-3 animate-spin" />
-                                  : broker.status === "expired"
-                                  ? <><RefreshCw className="h-3 w-3" />Reconnect</>
+                                  : isRetryable
+                                  ? <><RefreshCw className="h-3 w-3" />Retry</>
                                   : <><PlugZap className="h-3 w-3" />Connect</>}
                               </Button>
                             </div>
                           </div>
                         )}
                         {needsTotp && broker.broker_name !== "fyers" && (
-                          <div className="flex items-center gap-2">
-                            <Input
-                              value={totp}
-                              onChange={e => setBrokerTotps(prev => ({ ...prev, [broker.id]: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
-                              placeholder="6-digit TOTP"
-                              maxLength={6}
-                              className="h-7 text-xs font-mono w-28 shrink-0 bg-input"
-                            />
-                            <Button size="sm" className="h-7 text-xs gap-1 px-3" disabled={totp.length < 6 || connecting}
-                              onClick={() => handleBrokerConnect(broker.id)}>
-                              {connecting
-                                ? <Loader2 className="h-3 w-3 animate-spin" />
-                                : broker.status === "expired"
-                                ? <><RefreshCw className="h-3 w-3" />Reconnect</>
-                                : <><PlugZap className="h-3 w-3" />Connect</>}
-                            </Button>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={totp}
+                                onChange={e => setBrokerTotps(prev => ({ ...prev, [broker.id]: e.target.value.replace(/\D/g, "").slice(0, 6) }))}
+                                placeholder="6-digit TOTP"
+                                maxLength={6}
+                                className="h-7 text-xs font-mono w-28 shrink-0 bg-input"
+                              />
+                              <Button size="sm" className="h-7 text-xs gap-1 px-3" disabled={totp.length < 6 || connecting}
+                                onClick={() => handleBrokerConnect(broker.id)}>
+                                {connecting
+                                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                                  : isRetryable
+                                  ? <><RefreshCw className="h-3 w-3" />Retry</>
+                                  : <><PlugZap className="h-3 w-3" />Connect</>}
+                              </Button>
+                            </div>
+                            {broker.status === "invalid_credentials" && (
+                              <p className="text-[10px] text-destructive-bright">
+                                Saved API key / client code / PIN were rejected. Double-check them (edit via Delete + re-add), then enter a fresh TOTP.
+                              </p>
+                            )}
+                            {broker.status === "login_failed" && (
+                              <p className="text-[10px] text-destructive-bright">
+                                Login rejected — the TOTP was likely wrong or expired. Enter a fresh 6-digit code and retry.
+                              </p>
+                            )}
+                            {broker.status === "broker_unavailable" && (
+                              <p className="text-[10px] text-orange-400">
+                                Could not reach the broker's servers. Try again in a few minutes.
+                              </p>
+                            )}
                           </div>
+                        )}
+                        {broker.status === "session_expired" && (
+                          <p className="text-[10px] text-amber-400">
+                            Your session expired and was not renewed automatically — re-authenticate above to reconnect.
+                          </p>
                         )}
                       </div>
                     </div>

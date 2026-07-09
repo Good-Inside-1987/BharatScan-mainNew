@@ -5,6 +5,63 @@ import { getAdapter } from "../adapters/index.js";
 
 const router = Router();
 
+// ── Broker connection status ────────────────────────────────────────────────────
+//
+// Explicit connection states, replacing the old three-value status field.
+// The underlying stored strings stay lowercase/legacy-compatible for
+// 'connected' and 'disconnected' so marketDataService.ts's existing
+// `WHERE status = 'connected'` gate (and any other previously-shipped
+// consumer of this column) keeps working unmodified — only this routes
+// file changes what it writes/reads on top of that shared column.
+const BrokerStatus = {
+  CONNECTED: "connected",
+  DISCONNECTED: "disconnected",
+  WAITING_TOTP: "waiting_totp",
+  SESSION_EXPIRED: "session_expired",
+  INVALID_CREDENTIALS: "invalid_credentials",
+  LOGIN_FAILED: "login_failed",
+  BROKER_UNAVAILABLE: "broker_unavailable",
+} as const;
+
+type BrokerStatusValue = typeof BrokerStatus[keyof typeof BrokerStatus];
+
+/**
+ * Classifies a broker adapter error (thrown from login()) into one of the
+ * explicit failure states. Network-level failures (broker unreachable) are
+ * distinguished from credential problems (bad API key/secret/client code)
+ * and from login-attempt failures (wrong TOTP / auth code / generic auth
+ * rejection). Never triggers an automatic retry or reconnect — callers must
+ * always re-submit credentials/TOTP manually after any of these.
+ */
+function classifyBrokerError(err: unknown): {
+  status: BrokerStatusValue;
+  httpCode: number;
+  message: string;
+} {
+  const message = err instanceof Error ? err.message : String(err);
+
+  const isNetworkError =
+    err instanceof TypeError ||
+    /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|fetch failed|network error/i.test(message);
+  if (isNetworkError) {
+    return {
+      status: BrokerStatus.BROKER_UNAVAILABLE,
+      httpCode: 503,
+      message: "Broker service is unreachable. Please try again later.",
+    };
+  }
+
+  if (/invalid.*(api.?key|app.?id|secret|client.?code|credentials)/i.test(message)) {
+    return { status: BrokerStatus.INVALID_CREDENTIALS, httpCode: 401, message };
+  }
+
+  if (/totp|otp|auth.?code|authorization.?code/i.test(message)) {
+    return { status: BrokerStatus.LOGIN_FAILED, httpCode: 401, message };
+  }
+
+  return { status: BrokerStatus.LOGIN_FAILED, httpCode: 401, message };
+}
+
 // ── Connect rate limiter ───────────────────────────────────────────────────────
 
 const connectAttempts = new Map<string,
@@ -120,8 +177,8 @@ router.post("/", (req: Request, res: Response) => {
   db.prepare(`
     INSERT INTO broker_connections
       (id, broker_name, display_name, api_key, client_code, pin, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, 'disconnected', ?, ?)
-  `).run(id, broker_name, display_name, encKey, encCode, encPin, now, now);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, broker_name, display_name, encKey, encCode, encPin, BrokerStatus.WAITING_TOTP, now, now);
 
   res.status(201).json(publicRow(oneRow(id)!));
 });
@@ -187,12 +244,15 @@ router.get("/:id/status", (req: Request, res: Response) => {
     const d = new Date(row.token_generated_at);
     d.setHours(d.getHours() + 24);
     sessionValidUntil = d.toISOString();
-    // Auto-expire if the stored status is still 'connected' but token is stale
-    if (row.status === "connected" && new Date() > d) {
+    // Auto-expire if the stored status is still CONNECTED but the token is
+    // stale. This only marks the state — it never attempts to re-auth or
+    // reconnect automatically; the user must manually re-enter TOTP/auth
+    // code via /connect.
+    if (row.status === BrokerStatus.CONNECTED && new Date() > d) {
       const now = new Date().toISOString();
-      db.prepare("UPDATE broker_connections SET status = 'expired', updated_at = ? WHERE id = ?")
-        .run(now, row.id);
-      row.status = "expired";
+      db.prepare("UPDATE broker_connections SET status = ?, updated_at = ? WHERE id = ?")
+        .run(BrokerStatus.SESSION_EXPIRED, now, row.id);
+      row.status = BrokerStatus.SESSION_EXPIRED;
     }
   }
 
@@ -276,8 +336,15 @@ router.post("/:id/connect", async (req: Request, res: Response) => {
       req.ip ?? "127.0.0.1"
     );
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Login failed";
-    res.status(401).json({ error: msg });
+    // Classify the failure into an explicit state and persist it so the
+    // frontend (and any subsequent GET) reflects exactly why the connect
+    // attempt failed. No automatic retry/reconnect is attempted here —
+    // the user must manually re-submit TOTP/auth code.
+    const { status, httpCode, message } = classifyBrokerError(err);
+    const failedAt = new Date().toISOString();
+    db.prepare("UPDATE broker_connections SET status = ?, updated_at = ? WHERE id = ?")
+      .run(status, failedAt, row.id);
+    res.status(httpCode).json({ error: message, status });
     return;
   }
 
@@ -288,16 +355,16 @@ router.post("/:id/connect", async (req: Request, res: Response) => {
       UPDATE broker_connections SET
         access_token       = ?,
         token_generated_at = ?,
-        status             = 'connected',
+        status             = ?,
         updated_at         = ?
       WHERE id = ?
-    `).run(encrypt(accessToken), now, now, row.id);
+    `).run(encrypt(accessToken), now, BrokerStatus.CONNECTED, now, row.id);
   } catch (err) {
     res.status(500).json({ error: "Failed to store access token" });
     return;
   }
 
-  res.json({ ok: true, token_generated_at: now });
+  res.json({ ok: true, token_generated_at: now, status: BrokerStatus.CONNECTED });
 });
 
 // ── POST /api/broker-connections/:id/disconnect ───────────────────────────────
@@ -311,12 +378,12 @@ router.post("/:id/disconnect", (req: Request, res: Response) => {
     UPDATE broker_connections SET
       access_token       = NULL,
       token_generated_at = NULL,
-      status             = 'disconnected',
+      status             = ?,
       updated_at         = ?
     WHERE id = ?
-  `).run(now, row.id);
+  `).run(BrokerStatus.DISCONNECTED, now, row.id);
 
-  res.json({ ok: true });
+  res.json({ ok: true, status: BrokerStatus.DISCONNECTED });
 });
 
 export default router;
