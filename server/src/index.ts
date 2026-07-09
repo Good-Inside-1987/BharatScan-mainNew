@@ -44,6 +44,14 @@ function verifySession(token: string, key: string): boolean {
   return timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }
 
+if (!process.env.BROKER_ENCRYPTION_KEY) {
+  console.warn(
+    "[WARN] BROKER_ENCRYPTION_KEY is not set. " +
+    "Broker credential encryption will fail. " +
+    "Add BROKER_ENCRYPTION_KEY to your .env file."
+  );
+}
+
 const app = express();
 const port = Number(process.env.SERVER_PORT ?? 3001);
 

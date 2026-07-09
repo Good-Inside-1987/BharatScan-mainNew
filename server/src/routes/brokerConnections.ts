@@ -96,6 +96,13 @@ router.post("/", (req: Request, res: Response) => {
     return;
   }
 
+  if (display_name && display_name.length > 100) {
+    res.status(400).json({
+      error: "display_name too long (max 100 characters)"
+    });
+    return;
+  }
+
   let encKey: string, encCode: string, encPin: string;
   try {
     encKey  = encrypt(api_key);

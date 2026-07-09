@@ -191,5 +191,7 @@ export function initAppDb(db: DatabaseSync): void {
       created_at         TEXT NOT NULL,
       updated_at         TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_broker_status
+      ON broker_connections(broker_name, status);
   `);
 }
