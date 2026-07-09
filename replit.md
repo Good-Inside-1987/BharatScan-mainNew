@@ -95,6 +95,11 @@ A Chartink-inspired stock screener and backtesting tool for Indian markets — u
 
 _None recorded yet_
 
+## Setup status
+
+- Dependencies installed via `pnpm install`; both workflows ("Start application" on port 5000, "Backend API server" on port 3001) verified running.
+- `API_KEY` and `BROKER_ENCRYPTION_KEY` are optional — the server warns but runs fine without them in dev. Set them (plus rotate for prod) if you want auth/broker-credential encryption enabled.
+
 ## Gotchas
 
 - `PORT` and `BASE_PATH` default to `5173` and `/` if not set (safe for local dev)
