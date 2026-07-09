@@ -7,7 +7,95 @@ import type {
   Quote,
 } from "./types.js";
 
+const FYERS_DATA_BASE = "https://api-t1.fyers.in/data";
+
+// Fyers History API per-request date-range limits, in calendar days.
+const MAX_DAYS_DAILY = 366;
+const MAX_DAYS_INTRADAY = 100;
+const MAX_DAYS_SECONDS = 30;
+
+const INTRADAY_MINUTE_RESOLUTIONS = new Set([
+  "1", "2", "3", "5", "10", "15", "20", "30", "45", "60", "120", "180", "240",
+]);
+
+function isDailyResolution(resolution: string): boolean {
+  return resolution === "1D" || resolution === "D" || resolution === "D1";
+}
+
+function isSecondResolution(resolution: string): boolean {
+  return /S$/i.test(resolution);
+}
+
+function maxDaysForResolution(resolution: string): number {
+  if (isDailyResolution(resolution)) return MAX_DAYS_DAILY;
+  if (isSecondResolution(resolution)) return MAX_DAYS_SECONDS;
+  if (INTRADAY_MINUTE_RESOLUTIONS.has(resolution)) return MAX_DAYS_INTRADAY;
+  // Unknown resolution: fall back to the most conservative window.
+  return MAX_DAYS_SECONDS;
+}
+
+function addDays(date: Date, days: number): Date {
+  const copy = new Date(date.getTime());
+  copy.setUTCDate(copy.getUTCDate() + days);
+  return copy;
+}
+
+function toDateString(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Splits [fromDate, toDate] into sequential chunks that each respect the
+ * per-request day limit imposed by Fyers' History API for the given
+ * resolution. Callers of getHistoricalData() never see this chunking.
+ */
+function chunkDateRange(
+  fromDate: string,
+  toDate: string,
+  resolution: string
+): Array<{ from: string; to: string }> {
+  const maxDays = maxDaysForResolution(resolution);
+  const start = new Date(`${fromDate}T00:00:00Z`);
+  const end = new Date(`${toDate}T00:00:00Z`);
+
+  const chunks: Array<{ from: string; to: string }> = [];
+  let chunkStart = start;
+  while (chunkStart <= end) {
+    // maxDays is inclusive of both endpoints, so the last day of the chunk
+    // is (maxDays - 1) days after chunkStart.
+    const chunkEnd = addDays(chunkStart, maxDays - 1);
+    const clampedEnd = chunkEnd < end ? chunkEnd : end;
+    chunks.push({ from: toDateString(chunkStart), to: toDateString(clampedEnd) });
+    chunkStart = addDays(clampedEnd, 1);
+  }
+  return chunks;
+}
+
 export class FyersAdapter implements BrokerAdapter {
+  private appId?: string;
+  private accessToken?: string;
+
+  /**
+   * Fyers' data APIs require both the App ID and access token on every
+   * request (`Authorization: <appId>:<accessToken>`), but the shared
+   * BrokerAdapter interface only carries those through login(). Callers
+   * that want to use getHistoricalData/getQuotes/getOptionChain must call
+   * this first with the values obtained from a prior login().
+   */
+  configureSession(appId: string, accessToken: string): void {
+    this.appId = appId;
+    this.accessToken = accessToken;
+  }
+
+  private authHeader(): string {
+    if (!this.appId || !this.accessToken) {
+      throw new Error(
+        "FyersAdapter session not configured; call configureSession(appId, accessToken) before requesting market data"
+      );
+    }
+    return `${this.appId}:${this.accessToken}`;
+  }
+
   /**
    * For Fyers:
    *   credentials.apiKey     = App ID
@@ -50,23 +138,144 @@ export class FyersAdapter implements BrokerAdapter {
   }
 
   async getHistoricalData(
-    _symbol: string,
-    _resolution: string,
-    _fromDate: string,
-    _toDate: string
+    symbol: string,
+    resolution: string,
+    fromDate: string,
+    toDate: string
   ): Promise<Bar[]> {
-    throw new Error("FyersAdapter.getHistoricalData is not implemented");
+    const chunks = chunkDateRange(fromDate, toDate, resolution);
+    const bars: Bar[] = [];
+
+    for (const chunk of chunks) {
+      const url = new URL(`${FYERS_DATA_BASE}/history`);
+      url.searchParams.set("symbol", symbol);
+      url.searchParams.set("resolution", resolution);
+      url.searchParams.set("date_format", "1"); // yyyy-mm-dd
+      url.searchParams.set("range_from", chunk.from);
+      url.searchParams.set("range_to", chunk.to);
+      url.searchParams.set("cont_flag", "1");
+
+      const response = await fetch(url.toString(), {
+        headers: { Authorization: this.authHeader() },
+      });
+
+      const data = (await response.json()) as {
+        s: string;
+        message?: string;
+        candles?: number[][];
+      };
+
+      if (data.s !== "ok") {
+        throw new Error(data.message ?? "Fyers history request failed");
+      }
+
+      for (const candle of data.candles ?? []) {
+        const [timestamp, open, high, low, close, volume] = candle;
+        bars.push({
+          date: new Date(timestamp * 1000).toISOString(),
+          open,
+          high,
+          low,
+          close,
+          volume,
+        });
+      }
+    }
+
+    return bars;
   }
 
-  async getQuotes(_symbols: string[]): Promise<Quote[]> {
-    throw new Error("FyersAdapter.getQuotes is not implemented");
+  async getQuotes(symbols: string[]): Promise<Quote[]> {
+    const url = new URL(`${FYERS_DATA_BASE}/quotes`);
+    url.searchParams.set("symbols", symbols.join(","));
+
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: this.authHeader() },
+    });
+
+    const data = (await response.json()) as {
+      s: string;
+      message?: string;
+      d?: Array<{
+        n: string;
+        v: {
+          lp: number;
+          open_price: number;
+          high_price: number;
+          low_price: number;
+          prev_close_price: number;
+          volume: number;
+          tt?: number;
+        };
+      }>;
+    };
+
+    if (data.s !== "ok") {
+      throw new Error(data.message ?? "Fyers quotes request failed");
+    }
+
+    return (data.d ?? []).map((entry) => ({
+      symbol: entry.n,
+      ltp: entry.v.lp,
+      open: entry.v.open_price,
+      high: entry.v.high_price,
+      low: entry.v.low_price,
+      close: entry.v.prev_close_price,
+      volume: entry.v.volume,
+      timestamp: entry.v.tt
+        ? new Date(entry.v.tt * 1000).toISOString()
+        : new Date().toISOString(),
+    }));
   }
 
   async getOptionChain(
-    _underlying: string,
-    _expiry: string
+    underlying: string,
+    expiry: string
   ): Promise<OptionChainData> {
-    throw new Error("FyersAdapter.getOptionChain is not implemented");
+    const url = new URL(`${FYERS_DATA_BASE}/options-chain-v3`);
+    url.searchParams.set("symbol", underlying);
+    url.searchParams.set("timestamp", expiry);
+
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: this.authHeader() },
+    });
+
+    const data = (await response.json()) as {
+      s: string;
+      message?: string;
+      data?: {
+        optionsChain?: Array<Record<string, unknown>>;
+      };
+    };
+
+    if (data.s !== "ok") {
+      throw new Error(data.message ?? "Fyers option chain request failed");
+    }
+
+    const strikesByStrike = new Map<
+      number,
+      { strike: number; ce: Record<string, unknown> | null; pe: Record<string, unknown> | null }
+    >();
+
+    for (const row of data.data?.optionsChain ?? []) {
+      const strike = row.strike_price as number | undefined;
+      const optionType = row.option_type as string | undefined;
+      if (strike === undefined || !optionType) continue;
+
+      const entry =
+        strikesByStrike.get(strike) ?? { strike, ce: null, pe: null };
+      if (optionType === "CE") entry.ce = row;
+      else if (optionType === "PE") entry.pe = row;
+      strikesByStrike.set(strike, entry);
+    }
+
+    return {
+      underlying,
+      expiry,
+      strikes: Array.from(strikesByStrike.values()).sort(
+        (a, b) => a.strike - b.strike
+      ),
+    };
   }
 
   async refreshSession(_refreshToken: string): Promise<string> {
