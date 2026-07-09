@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
-import type { BrokerAdapter, BrokerCredentials } from "./types.js";
+import type {
+  Bar,
+  BrokerAdapter,
+  BrokerCredentials,
+  OptionChainData,
+  Quote,
+} from "./types.js";
 
 export class FyersAdapter implements BrokerAdapter {
   /**
@@ -41,5 +47,29 @@ export class FyersAdapter implements BrokerAdapter {
     }
 
     return data.access_token;
+  }
+
+  async getHistoricalData(
+    _symbol: string,
+    _resolution: string,
+    _fromDate: string,
+    _toDate: string
+  ): Promise<Bar[]> {
+    throw new Error("FyersAdapter.getHistoricalData is not implemented");
+  }
+
+  async getQuotes(_symbols: string[]): Promise<Quote[]> {
+    throw new Error("FyersAdapter.getQuotes is not implemented");
+  }
+
+  async getOptionChain(
+    _underlying: string,
+    _expiry: string
+  ): Promise<OptionChainData> {
+    throw new Error("FyersAdapter.getOptionChain is not implemented");
+  }
+
+  async refreshSession(_refreshToken: string): Promise<string> {
+    throw new Error("FyersAdapter.refreshSession is not implemented");
   }
 }
