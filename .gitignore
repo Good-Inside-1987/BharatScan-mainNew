@@ -6,10 +6,11 @@ bharatscan.db-shm
 bharatscan.db-wal
 bharatscan.db.backup
 
-# SQLite database files — never commit these
-data/*.db
-data/*.db-shm
-data/*.db-wal
+# SQLite database files and the data/ directory — never commit these.
+# The data/ directory is used in Replit and on Oracle servers.
+# In Electron mode the databases live in the OS user-data folder (outside the
+# project tree entirely), so no extra gitignore entry is needed there.
+data/
 
 # Local environment overrides
 .env
