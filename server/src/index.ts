@@ -16,6 +16,7 @@ import dashboardsRouter from "./routes/dashboards.js";
 import scannerDashboardsRouter from "./routes/scannerDashboards.js";
 import alertsRouter from "./routes/alerts.js";
 import paperTradingRouter from "./routes/paperTrading.js";
+import { getServiceStats } from "./services/marketDataService.js";
 import brokerConnectionsRouter from "./routes/brokerConnections.js";
 
 void appDb;
@@ -151,6 +152,7 @@ app.get("/api/market/status", (_req, res) => {
     },
     angel_connected: false, // will be updated when Angel API is integrated
     last_sync: null,        // will be populated from sync_log once Angel is running
+    backfill: getServiceStats(),
   });
 });
 

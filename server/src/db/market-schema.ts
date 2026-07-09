@@ -154,5 +154,26 @@ export function initMarketDb(db: DatabaseSync): void {
       last_date   TEXT,
       updated_at  TEXT NOT NULL
     );
+
+    -- ── Backfill progress (per-symbol coverage tracking) ──────────
+    -- Tracks exactly which date ranges have been cached for every
+    -- (symbol, resolution) pair as a JSON array of {from,to} objects.
+    -- Using an interval list (rather than a single min/max window)
+    -- means holes from failed chunks remain detectable after later
+    -- chunks succeed.  Updated after every completed chunk so
+    -- progress survives process restarts.
+    CREATE TABLE IF NOT EXISTS backfill_progress (
+      symbol         TEXT NOT NULL,
+      resolution     TEXT NOT NULL,
+      covered_ranges TEXT NOT NULL DEFAULT '[]',
+      updated_at     TEXT NOT NULL,
+      PRIMARY KEY (symbol, resolution)
+    );
   `);
+
+  // Migrate any older backfill_progress schema that used earliest/latest
+  // columns instead of covered_ranges.  Silently ignore if already present.
+  try {
+    db.exec(`ALTER TABLE backfill_progress ADD COLUMN covered_ranges TEXT NOT NULL DEFAULT '[]'`);
+  } catch { /* column already exists */ }
 }

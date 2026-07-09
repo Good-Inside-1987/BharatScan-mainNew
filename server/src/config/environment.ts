@@ -105,6 +105,14 @@ export const config = {
   // never bharatscan-scheduler, so a 4 PM sync is never interrupted
   // by a routine code deploy.
   runSchedulerInProcess: isReplit,
+
+  // ── Market data backfill budget ──────────────────────────────────
+  // Maximum broker API requests the backfill service may make per
+  // calendar day (IST). Stays well below Fyers' 10 req/sec burst
+  // limit while bounding total daily API consumption.
+  // Replit: conservative — free-tier broker accounts have low caps.
+  // Full: Oracle / local where broker tier and network are better.
+  backfillDailyRequestBudget: isReplit ? 500 : 4000,
 };
 
 export type AppConfig = typeof config;
