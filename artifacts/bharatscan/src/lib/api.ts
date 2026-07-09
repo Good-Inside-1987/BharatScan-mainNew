@@ -74,6 +74,61 @@ export const apiSaveSetting = (key: string, value: string) =>
 export const apiHealth = () =>
   request<{ status: string; db_version: string }>("/health");
 
+// ── Market data (broker-backed live/historical feed) ────────────────────────
+
+export interface ApiHistoryBar {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface ApiHistoryResponse {
+  symbol: string;
+  resolution: string;
+  bars: ApiHistoryBar[];
+}
+
+export const apiGetMarketHistory = (
+  symbol: string,
+  resolution: string,
+  from: string,
+  to: string
+) =>
+  request<ApiHistoryResponse>(
+    `/market-data/history?symbol=${encodeURIComponent(symbol)}&resolution=${encodeURIComponent(resolution)}&from=${from}&to=${to}`
+  );
+
+export interface ApiLiveQuote {
+  symbol: string;
+  ltp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  timestamp: string;
+}
+
+export const apiGetMarketQuotes = (symbols: string[]) =>
+  request<{ quotes: ApiLiveQuote[] }>(
+    `/market-data/quotes?symbols=${encodeURIComponent(symbols.join(","))}`
+  );
+
+export const apiSubscribeMarketSymbols = (symbols: string[]) =>
+  request<{ ok: boolean; symbols: string[] }>("/market-data/subscribe", {
+    method: "POST",
+    body: JSON.stringify({ symbols }),
+  });
+
+export const apiUnsubscribeMarketSymbols = (symbols: string[]) =>
+  request<{ ok: boolean; symbols: string[] }>("/market-data/unsubscribe", {
+    method: "POST",
+    body: JSON.stringify({ symbols }),
+  });
+
 // ── Dashboard types ────────────────────────────────────────────────────────────
 
 export interface ApiDashboard {

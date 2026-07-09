@@ -1,21 +1,46 @@
-import { useRef } from "react";
-import { FolderOpen, Upload, RefreshCw, FileSpreadsheet, Loader2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { FolderOpen, Upload, RefreshCw, FileSpreadsheet, Loader2, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { useData } from "@/context/DataContext";
 import { toast } from "sonner";
 
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function DataSourcePanels() {
   const {
-    histories, loading, progress, folderHandle, folderName, categories, optionsData,
+    histories, loading, progress, brokerLoading, brokerProgress,
+    folderHandle, folderName, categories, optionsData,
     dateRange, supportsDirectoryPicker,
     pickFolder, refreshFolder, clearFolder,
-    handleFiles, handleMasterUpload, handleOptionsUpload, pickOptionsFolder,
+    handleFiles, handleLoadFromBroker, handleMasterUpload, handleOptionsUpload, pickOptionsFolder,
   } = useData();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const masterInputRef = useRef<HTMLInputElement>(null);
   const optionsInputRef = useRef<HTMLInputElement>(null);
+
+  const [useBroker, setUseBroker] = useState(false);
+  const [brokerSymbols, setBrokerSymbols] = useState("");
+  const [brokerFrom, setBrokerFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
+  const [brokerTo, setBrokerTo] = useState(todayIso());
+
+  function submitBrokerLoad() {
+    const symbols = brokerSymbols
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!symbols.length) { toast.error("Enter at least one symbol (comma-separated)"); return; }
+    void handleLoadFromBroker(symbols, brokerFrom, brokerTo);
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -25,12 +50,70 @@ export function DataSourcePanels() {
           <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
             Stocks Data Source
           </h2>
-          {loading && progress && (
-            <span className="text-xs text-muted-foreground">
-              {progress.filesProcessed}/{progress.totalFiles} · {progress.symbols} sym
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {loading && progress && (
+              <span className="text-xs text-muted-foreground">
+                {progress.filesProcessed}/{progress.totalFiles} · {progress.symbols} sym
+              </span>
+            )}
+            {brokerLoading && brokerProgress && (
+              <span className="text-xs text-muted-foreground">
+                {brokerProgress.symbolsProcessed}/{brokerProgress.totalSymbols} sym
+              </span>
+            )}
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={useBroker}
+                onChange={(e) => setUseBroker(e.target.checked)}
+                className="h-3.5 w-3.5 accent-primary cursor-pointer"
+              />
+              <Radio className="h-3 w-3" />
+              Load from connected broker
+            </label>
+          </div>
         </div>
+
+        {useBroker ? (
+          <div className="flex flex-wrap gap-2 items-center">
+            <Input
+              value={brokerSymbols}
+              onChange={(e) => setBrokerSymbols(e.target.value)}
+              placeholder="Symbols, comma-separated (e.g. SBIN, RELIANCE, TCS)"
+              disabled={brokerLoading}
+              className="h-7 text-xs flex-1 min-w-[220px]"
+            />
+            <Input
+              type="date"
+              value={brokerFrom}
+              onChange={(e) => setBrokerFrom(e.target.value)}
+              disabled={brokerLoading}
+              className="h-7 text-xs w-[130px]"
+            />
+            <Input
+              type="date"
+              value={brokerTo}
+              onChange={(e) => setBrokerTo(e.target.value)}
+              disabled={brokerLoading}
+              className="h-7 text-xs w-[130px]"
+            />
+            <Button
+              size="sm"
+              onClick={submitBrokerLoad}
+              disabled={brokerLoading}
+              className="h-7 px-3 text-xs bg-gradient-primary text-primary-foreground hover:opacity-90 shadow-glow"
+            >
+              {brokerLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Radio className="h-3 w-3" />}
+              Load
+            </Button>
+            {brokerProgress?.failed.length ? (
+              <span className="text-[11px] text-destructive-bright w-full">
+                Failed: {brokerProgress.failed.join(", ")}
+              </span>
+            ) : null}
+          </div>
+        ) : (
+        <>
         <div className="flex flex-wrap gap-2 items-center">
           {supportsDirectoryPicker() && (
             <Button
@@ -113,6 +196,8 @@ export function DataSourcePanels() {
               </span>
             )}
           </div>
+        )}
+        </>
         )}
       </Card>
 

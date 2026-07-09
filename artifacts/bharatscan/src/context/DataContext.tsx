@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from "react";
 import type { SymbolHistory, Bar } from "@/lib/csv";
-import { loadFromFiles, readDirectoryCsvFiles, supportsDirectoryPicker, type LoadProgress } from "@/lib/dataLoader";
+import { loadFromFiles, readDirectoryCsvFiles, supportsDirectoryPicker, loadFromBrokerApi, type LoadProgress, type BrokerLoadProgress } from "@/lib/dataLoader";
 import {
   parseMasterCsv, getCategories, setCategories,
   getHolidays, setHolidays,
@@ -37,6 +37,8 @@ interface DataContextValue {
   histories: SymbolHistory[];
   loading: boolean;
   progress: LoadProgress | null;
+  brokerLoading: boolean;
+  brokerProgress: BrokerLoadProgress | null;
   folderHandle: FileSystemDirectoryHandle | null;
   folderName: string | null;
   categories: UniverseCategory[];
@@ -52,6 +54,7 @@ interface DataContextValue {
   refreshFolder: () => Promise<void>;
   clearFolder: () => Promise<void>;
   handleFiles: (files: FileList | null) => Promise<void>;
+  handleLoadFromBroker: (symbols: string[], fromDate: string, toDate: string) => Promise<void>;
   handleMasterUpload: (files: FileList | null) => Promise<void>;
   handleOptionsUpload: (files: FileList | null) => Promise<void>;
   pickOptionsFolder: () => Promise<void>;
@@ -75,6 +78,8 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
   const [histories, setHistories] = useState<SymbolHistory[]>([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
+  const [brokerLoading, setBrokerLoading] = useState(false);
+  const [brokerProgress, setBrokerProgress] = useState<BrokerLoadProgress | null>(null);
   const [folderHandle, setFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [folderName, setFolderName] = useState<string | null>(null);
   const [categories, setCategoriesState] = useState<UniverseCategory[]>(() => getCategories());
@@ -249,6 +254,27 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function handleLoadFromBroker(symbols: string[], fromDate: string, toDate: string) {
+    if (!symbols.length) { toast.error("Enter at least one symbol"); return; }
+    setBrokerLoading(true);
+    setBrokerProgress(null);
+    try {
+      const hist = await loadFromBrokerApi(symbols, fromDate, toDate, setBrokerProgress);
+      if (!hist.length) {
+        toast.error("No data returned — check the broker connection and symbols");
+        return;
+      }
+      setHistories(hist);
+      const failedCount = symbols.length - hist.length;
+      const failedMsg = failedCount > 0 ? ` (${failedCount} failed)` : "";
+      toast.success(`Loaded ${hist.length} symbols from connected broker${failedMsg}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBrokerLoading(false);
+    }
+  }
+
   async function handleMasterUpload(files: FileList | null) {
     if (!files || !files.length) return;
     try {
@@ -371,11 +397,11 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
 
   return (
     <DataContext.Provider value={{
-      histories, loading, progress, folderHandle, folderName,
+      histories, loading, progress, brokerLoading, brokerProgress, folderHandle, folderName,
       categories, holidays, quotes, lotSizes, optionsData, dateRange,
       supportsDirectoryPicker,
       pickFolder, refreshFolder, clearFolder,
-      handleFiles, handleMasterUpload, handleOptionsUpload, pickOptionsFolder,
+      handleFiles, handleLoadFromBroker, handleMasterUpload, handleOptionsUpload, pickOptionsFolder,
       mergeApiStocks, mergeApiOptions, clearApiData,
       realNow, dateMode, setDateMode, historicalDate, setHistoricalDate,
       now, marketTarget, targetHoliday,

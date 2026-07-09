@@ -1,4 +1,5 @@
 import { parseCsvText, rowToBar, type SymbolHistory, type Bar } from "./csv";
+import { apiGetMarketHistory, type ApiHistoryBar } from "./api";
 
 // Load multiple CSV bhavcopy files (NSE EOD format) into per-symbol histories.
 export interface LoadProgress {
@@ -112,4 +113,112 @@ export async function readDirectoryCsvFiles(
 
 export function supportsDirectoryPicker(): boolean {
   return typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === "function";
+}
+
+// ── Broker API loading ──────────────────────────────────────────────────────
+//
+// Loads OHLCV history from the connected broker (via the backend's
+// marketDataService/liveFeedService-backed REST endpoints) instead of
+// user-uploaded CSVs. Produces the exact same SymbolHistory[]/Bar shape as
+// loadFromFiles() so screener.ts / indicators.ts work identically regardless
+// of data source.
+
+export interface BrokerLoadProgress {
+  symbolsProcessed: number;
+  totalSymbols: number;
+  failed: string[];
+}
+
+/**
+ * Normalizes a plain NSE ticker (e.g. "SBIN") into the Fyers-native symbol
+ * format ("NSE:SBIN-EQ") expected by the backend's history endpoint.
+ * Symbols that already look Fyers-formatted (contain a colon) pass through
+ * unchanged.
+ */
+function toFyersSymbol(symbol: string): string {
+  const s = symbol.trim().toUpperCase();
+  if (s.includes(":")) return s;
+  return `NSE:${s}-EQ`;
+}
+
+function apiBarToBar(bar: ApiHistoryBar, prevClose: number): Bar {
+  return {
+    date: bar.date.slice(0, 10),
+    open: bar.open,
+    high: bar.high,
+    low: bar.low,
+    close: bar.close,
+    prevClose,
+    volume: bar.volume,
+    trades: 0,
+    value: 0,
+  };
+}
+
+/**
+ * Fetches historical OHLCV bars for the given symbols from the connected
+ * broker (default resolution: daily) and maps them into SymbolHistory[] —
+ * the same shape loadFromFiles() produces. Symbols that fail to fetch are
+ * skipped (reported via onProgress) rather than aborting the whole batch.
+ */
+export async function loadFromBrokerApi(
+  symbols: string[],
+  fromDate: string,
+  toDate: string,
+  onProgress?: (p: BrokerLoadProgress) => void,
+  resolution: string = "1D",
+): Promise<SymbolHistory[]> {
+  const out: SymbolHistory[] = [];
+  const failed: string[] = [];
+  let processed = 0;
+
+  // Fetch with modest concurrency — the backend already rate-limits/paces
+  // upstream broker calls, so this just avoids firing hundreds of
+  // simultaneous requests from the browser.
+  const CONCURRENCY = 5;
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < symbols.length) {
+      const idx = cursor++;
+      const rawSymbol = symbols[idx];
+      const fyersSymbol = toFyersSymbol(rawSymbol);
+      try {
+        const res = await apiGetMarketHistory(fyersSymbol, resolution, fromDate, toDate);
+
+        // Sort raw API bars chronologically FIRST so prevClose is computed
+        // against the correct preceding day, then de-dupe same-day rows
+        // (keep last) — mirrors loadFromFiles()'s sort-then-dedupe order.
+        const sortedRaw = [...res.bars].sort((a, b) => a.date.localeCompare(b.date));
+        const dedupRaw: ApiHistoryBar[] = [];
+        for (const b of sortedRaw) {
+          const key = b.date.slice(0, 10);
+          if (dedupRaw.length && dedupRaw[dedupRaw.length - 1].date.slice(0, 10) === key) {
+            dedupRaw[dedupRaw.length - 1] = b;
+          } else {
+            dedupRaw.push(b);
+          }
+        }
+
+        const bars: Bar[] = [];
+        let prevClose = 0;
+        for (const b of dedupRaw) {
+          bars.push(apiBarToBar(b, prevClose));
+          prevClose = b.close;
+        }
+        out.push({ symbol: rawSymbol.toUpperCase(), series: "EQ", bars });
+      } catch (e) {
+        failed.push(rawSymbol);
+        console.warn(`[dataLoader] Broker fetch failed for ${rawSymbol}: ${(e as Error).message}`);
+      } finally {
+        processed++;
+        onProgress?.({ symbolsProcessed: processed, totalSymbols: symbols.length, failed: [...failed] });
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, symbols.length) }, () => worker()));
+
+  out.sort((a, b) => a.symbol.localeCompare(b.symbol));
+  return out;
 }

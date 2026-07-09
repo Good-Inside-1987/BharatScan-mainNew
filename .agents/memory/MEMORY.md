@@ -3,3 +3,4 @@
 - [node:sqlite quirks](node-sqlite-quirks.md) — `DatabaseSync` has no `.transaction()` like better-sqlite3; use manual BEGIN/COMMIT, and verify multi-table migrations standalone.
 - [Adapter session reuse](adapter-session-reuse.md) — Both current adapters expose configureSession(apiKey, token) for stored-token reuse; refreshSession() throws; use duck typing to detect it.
 - [Backfill progress intervals](backfill-progress-intervals.md) — backfill_progress uses a covered_ranges JSON column (array of {from,to}) not a min/max window; holes stay detectable after partial failures.
+- [Broker history loader parity](broker-history-loader.md) — sort broker/API bars chronologically before computing prevClose, then dedupe same-day, matching CSV loader order.
