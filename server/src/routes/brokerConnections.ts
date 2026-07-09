@@ -2,6 +2,12 @@ import { Router, type Request, type Response } from "express";
 import { db } from "../db.js";
 import { encrypt, decrypt } from "../lib/encryption.js";
 import { getAdapter } from "../adapters/index.js";
+import {
+  AuthenticationError,
+  SessionExpiredError,
+  RateLimitError,
+  BrokerUnavailableError,
+} from "../errors/brokerErrors.js";
 
 const router = Router();
 
@@ -30,14 +36,31 @@ type BrokerStatusValue = typeof BrokerStatus[keyof typeof BrokerStatus];
  * explicit failure states. Network-level failures (broker unreachable) are
  * distinguished from credential problems (bad API key/secret/client code)
  * and from login-attempt failures (wrong TOTP / auth code / generic auth
- * rejection). Never triggers an automatic retry or reconnect — callers must
- * always re-submit credentials/TOTP manually after any of these.
+ * rejection). Typed broker errors (from brokerErrors.ts) are checked first
+ * so future adapter upgrades can throw them directly and get correct codes.
+ * Never triggers an automatic retry or reconnect — callers must always
+ * re-submit credentials/TOTP manually after any of these.
  */
 function classifyBrokerError(err: unknown): {
   status: BrokerStatusValue;
   httpCode: number;
   message: string;
 } {
+  // ── Typed broker errors take priority ─────────────────────────────────────
+  if (err instanceof RateLimitError) {
+    return { status: BrokerStatus.BROKER_UNAVAILABLE, httpCode: 429, message: err.message };
+  }
+  if (err instanceof BrokerUnavailableError) {
+    return { status: BrokerStatus.BROKER_UNAVAILABLE, httpCode: 503, message: err.message };
+  }
+  if (err instanceof SessionExpiredError) {
+    return { status: BrokerStatus.SESSION_EXPIRED, httpCode: 401, message: err.message };
+  }
+  if (err instanceof AuthenticationError) {
+    return { status: BrokerStatus.INVALID_CREDENTIALS, httpCode: 401, message: err.message };
+  }
+
+  // ── Generic Error message pattern matching (existing adapters) ────────────
   const message = err instanceof Error ? err.message : String(err);
 
   const isNetworkError =

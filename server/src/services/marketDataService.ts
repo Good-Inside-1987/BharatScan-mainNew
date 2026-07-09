@@ -27,6 +27,12 @@ import { getAdapter } from "../adapters/index.js";
 import type { BrokerAdapter, Bar, Quote } from "../adapters/types.js";
 import { decrypt } from "../lib/encryption.js";
 import { config } from "../config/environment.js";
+import {
+  AuthenticationError,
+  SessionExpiredError,
+  RateLimitError,
+  BrokerUnavailableError,
+} from "../errors/brokerErrors.js";
 
 // ── Internal row types ────────────────────────────────────────────────────────
 
@@ -106,6 +112,73 @@ async function throttle<T>(fn: () => Promise<T>): Promise<T> {
   if (wait > 0) await sleep(wait);
   lastCallAt = Date.now();
   return fn();
+}
+
+// ── In-memory TTL cache for getHistoricalBars results ─────────────────────────
+// Prevents redundant DB reads and broker calls when many scanner symbols
+// request overlapping ranges in quick succession (e.g. a full-universe scan).
+
+const BARS_CACHE_TTL_MS = 7_000; // 7 s — short enough to stay fresh, long enough to absorb burst
+
+interface BarsCacheEntry { bars: Bar[]; expiresAt: number }
+const barsCache = new Map<string, BarsCacheEntry>();
+
+function barsCacheKey(symbol: string, resolution: string, from: string, to: string): string {
+  return `${symbol}|${resolution}|${from}|${to}`;
+}
+
+function barsFromCache(key: string): Bar[] | null {
+  const entry = barsCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { barsCache.delete(key); return null; }
+  return entry.bars;
+}
+
+function storeBarsInCache(key: string, bars: Bar[]): void {
+  barsCache.set(key, { bars, expiresAt: Date.now() + BARS_CACHE_TTL_MS });
+}
+
+// ── Adapter error classifier ───────────────────────────────────────────────────
+// Translates generic Error messages thrown by adapters into typed broker errors.
+
+function classifyAdapterError(err: unknown): never {
+  const message = err instanceof Error ? err.message : String(err);
+
+  const isNetwork =
+    err instanceof TypeError ||
+    /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|fetch failed|network error/i.test(message);
+  if (isNetwork) throw new BrokerUnavailableError();
+
+  if (/rate.?limit|too.?many.?request|429/i.test(message)) throw new RateLimitError(message);
+
+  if (/not configured|session|expired|unauthori[sz]|invalid.?(token|key|credentials)|forbidden/i.test(message))
+    throw new SessionExpiredError(message);
+
+  // Treat anything else as a generic broker unavailability (preserves old 503 behaviour)
+  throw new BrokerUnavailableError(message);
+}
+
+// ── Auth state helper ──────────────────────────────────────────────────────────
+// Inspects the DB to distinguish "never connected" from "token expired" so the
+// public API functions can throw the most informative typed error.
+
+interface ConnectedRow { token_generated_at: string | null }
+
+function noAdapterReason(): AuthenticationError | SessionExpiredError {
+  const TOKEN_TTL_MS = 23 * 60 * 60 * 1000;
+  const row = appDb
+    .prepare(
+      `SELECT token_generated_at FROM broker_connections
+        WHERE status IN ('connected','session_expired')
+        ORDER BY token_generated_at DESC LIMIT 1`
+    )
+    .get() as unknown as ConnectedRow | undefined;
+
+  if (row?.token_generated_at) {
+    const age = Date.now() - new Date(row.token_generated_at).getTime();
+    if (age > TOKEN_TTL_MS) return new SessionExpiredError();
+  }
+  return new AuthenticationError();
 }
 
 // ── Daily request budget ──────────────────────────────────────────────────────
@@ -432,6 +505,13 @@ function enqueue(tasks: BackfillTask[]): void {
  * "YYYY-MM-DD").  Returns cached data immediately; any uncovered sub-ranges are
  * fetched from the connected broker — first chunk inline for a fresh response,
  * remaining chunks queued for background processing.
+ *
+ * Results are held in a short in-memory TTL cache (7 s) so that burst calls
+ * from scanner/backtest loops for the same symbol+range hit the DB only once.
+ *
+ * Throws typed broker errors (AuthenticationError, SessionExpiredError,
+ * RateLimitError, BrokerUnavailableError) when an inline broker fetch is
+ * needed but cannot be completed, so routes can return distinct HTTP codes.
  */
 export async function getHistoricalBars(
   symbol: string,
@@ -439,51 +519,71 @@ export async function getHistoricalBars(
   fromDate: string,
   toDate: string
 ): Promise<Bar[]> {
+  // ── 1. TTL cache hit ──────────────────────────────────────────────────────
+  const cacheKey = barsCacheKey(symbol, resolution, fromDate, toDate);
+  const cached = barsFromCache(cacheKey);
+  if (cached) return cached;
+
+  // ── 2. Check for uncovered gaps ───────────────────────────────────────────
   const gaps = gapsFor(symbol, resolution, fromDate, toDate);
 
   if (gaps.length > 0) {
     const adapter = await getAuthenticatedAdapter();
-    if (adapter) {
-      const allChunks = gaps.flatMap((g) => chunkRange(g.from, g.to, resolution));
-      const [first, ...rest] = allChunks;
 
-      // Fetch the first chunk synchronously so the caller gets fresh data now
-      if (first && consumeBudget()) {
+    if (!adapter) {
+      // Throw a typed error so the route can return 401 vs. generic 503
+      throw noAdapterReason();
+    }
+
+    const allChunks = gaps.flatMap((g) => chunkRange(g.from, g.to, resolution));
+    const [first, ...rest] = allChunks;
+
+    // Fetch the first chunk synchronously so the caller gets fresh data now
+    if (first && consumeBudget()) {
+      // Let typed errors propagate to the caller (route maps → HTTP code).
+      // The background worker has its own try/catch and continues regardless.
+      await throttle(async () => {
         try {
-          await throttle(async () => {
-            const bars = await adapter.getHistoricalData(
-              symbol, resolution, first.from, first.to
-            );
-            upsertBars(symbol, resolution, bars);
-            updateProgress(symbol, resolution, first.from, first.to);
-            console.log(
-              "[marketDataService] ✓ inline fetch %s %s %s→%s  (%d bars)",
-              symbol, resolution, first.from, first.to, bars.length
-            );
-          });
-        } catch (err) {
-          console.error(
-            "[marketDataService] Inline fetch failed for %s: %s",
-            symbol,
-            err instanceof Error ? err.message : String(err)
+          const bars = await adapter.getHistoricalData(
+            symbol, resolution, first.from, first.to
           );
+          upsertBars(symbol, resolution, bars);
+          updateProgress(symbol, resolution, first.from, first.to);
+          console.log(
+            "[marketDataService] ✓ inline fetch %s %s %s→%s  (%d bars)",
+            symbol, resolution, first.from, first.to, bars.length
+          );
+        } catch (err) {
+          // Already a typed error? Re-throw as-is.
+          if (
+            err instanceof AuthenticationError ||
+            err instanceof SessionExpiredError ||
+            err instanceof RateLimitError ||
+            err instanceof BrokerUnavailableError
+          ) throw err;
+          // Generic adapter error → classify into a typed error and throw.
+          classifyAdapterError(err);
         }
-      }
+      });
+    }
 
-      // Enqueue remaining chunks for background processing
-      if (rest.length) {
-        enqueue(rest.map((c) => ({ symbol, resolution, from: c.from, to: c.to })));
-      }
+    // Enqueue remaining chunks for background processing
+    if (rest.length) {
+      enqueue(rest.map((c) => ({ symbol, resolution, from: c.from, to: c.to })));
     }
   }
 
-  // Always serve from cache — reflects whatever was just upserted
-  return queryBars(symbol, resolution, fromDate, toDate);
+  // ── 3. Read from DB and populate TTL cache ────────────────────────────────
+  const bars = queryBars(symbol, resolution, fromDate, toDate);
+  storeBarsInCache(cacheKey, bars);
+  return bars;
 }
 
 /**
  * Fetch live quotes from the connected broker adapter.
- * Returns an empty array (without throwing) when no broker session is active.
+ * Throws typed broker errors (AuthenticationError, SessionExpiredError,
+ * RateLimitError, BrokerUnavailableError) so routes can return distinct
+ * HTTP status codes.
  * A WebSocket-based live cache will replace this proxy in the next iteration.
  */
 export async function getLiveQuotes(symbols: string[]): Promise<Quote[]> {
@@ -491,18 +591,19 @@ export async function getLiveQuotes(symbols: string[]): Promise<Quote[]> {
 
   const adapter = await getAuthenticatedAdapter();
   if (!adapter) {
-    console.warn("[marketDataService] getLiveQuotes: no authenticated adapter");
-    return [];
+    throw noAdapterReason();
   }
 
   try {
     return await adapter.getQuotes(symbols);
   } catch (err) {
-    console.error(
-      "[marketDataService] getLiveQuotes error: %s",
-      err instanceof Error ? err.message : String(err)
-    );
-    return [];
+    if (
+      err instanceof AuthenticationError ||
+      err instanceof SessionExpiredError ||
+      err instanceof RateLimitError ||
+      err instanceof BrokerUnavailableError
+    ) throw err;
+    classifyAdapterError(err);
   }
 }
 

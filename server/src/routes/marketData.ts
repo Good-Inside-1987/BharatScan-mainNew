@@ -2,6 +2,12 @@ import { Router, type Request, type Response } from "express";
 import { appDb } from "../db.js";
 import { getHistoricalBars, getLiveQuotes } from "../services/marketDataService.js";
 import { subscribeSymbols, unsubscribeSymbols } from "../services/liveFeedService.js";
+import {
+  AuthenticationError,
+  SessionExpiredError,
+  RateLimitError,
+  BrokerUnavailableError,
+} from "../errors/brokerErrors.js";
 
 /**
  * REST surface for market data. Every handler below calls ONLY
@@ -18,6 +24,38 @@ function hasConnectedBroker(): boolean {
     .prepare("SELECT 1 FROM broker_connections WHERE status = 'connected' LIMIT 1")
     .get();
   return !!row;
+}
+
+/**
+ * Map typed broker errors to distinct HTTP status codes.
+ * Returns true when it handled the response so the caller can return early.
+ */
+function handleBrokerError(err: unknown, res: Response, context: string): boolean {
+  if (err instanceof SessionExpiredError) {
+    console.warn("[marketData] %s — session expired: %s", context, err.message);
+    res.status(401).json({ error: err.message, code: err.code });
+    return true;
+  }
+  if (err instanceof AuthenticationError) {
+    console.warn("[marketData] %s — not authenticated: %s", context, err.message);
+    res.status(401).json({ error: err.message, code: err.code });
+    return true;
+  }
+  if (err instanceof RateLimitError) {
+    console.warn("[marketData] %s — rate limited: %s", context, err.message);
+    res.status(429).json({
+      error: err.message,
+      code: err.code,
+      retryAfterMs: err.retryAfterMs,
+    });
+    return true;
+  }
+  if (err instanceof BrokerUnavailableError) {
+    console.warn("[marketData] %s — broker unavailable: %s", context, err.message);
+    res.status(503).json({ error: err.message, code: err.code });
+    return true;
+  }
+  return false;
 }
 
 router.get("/history", async (req: Request, res: Response) => {
@@ -53,6 +91,7 @@ router.get("/history", async (req: Request, res: Response) => {
     const bars = await getHistoricalBars(symbol, resolution, from, to);
     res.json({ symbol, resolution, bars });
   } catch (err) {
+    if (handleBrokerError(err, res, "/history")) return;
     console.error("[marketData] /history error: %s", err instanceof Error ? err.message : String(err));
     res.status(503).json({ error: "Failed to fetch historical data" });
   }
@@ -85,6 +124,7 @@ router.get("/quotes", async (req: Request, res: Response) => {
     const quotes = await getLiveQuotes(symbolList);
     res.json({ quotes });
   } catch (err) {
+    if (handleBrokerError(err, res, "/quotes")) return;
     console.error("[marketData] /quotes error: %s", err instanceof Error ? err.message : String(err));
     res.status(503).json({ error: "Failed to fetch quotes" });
   }
