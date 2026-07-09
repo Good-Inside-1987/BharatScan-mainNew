@@ -143,7 +143,7 @@ app.get("/api/market/status", (_req, res) => {
   }
 
   res.json({
-    environment: config.env,
+    environment: config.envLabel,
     databases: {
       app_db_mb: getDbSizeMb("app.db"),
       market_db_mb: getDbSizeMb("market.db"),

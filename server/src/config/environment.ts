@@ -1,7 +1,12 @@
 // Single source of truth for all environment-specific settings.
-// Auto-detects Replit (via REPL_ID env var) vs Oracle.
-// Angel API sync jobs read all their settings from this object —
-// nothing is hardcoded inside the sync jobs themselves.
+// Auto-detects Replit (via REPL_ID env var) vs Oracle vs local/Electron
+// (via APP_ENV=local). Angel API sync jobs read all their settings from
+// this object — nothing is hardcoded inside the sync jobs themselves.
+//
+// Data-volume settings only ever differ between "replit" (reduced
+// footprint) and "full" (Oracle + local/Electron share the same full-scale
+// settings). `envLabel` is a separate three-way label used purely for
+// logging/display so we can still say "local" vs "oracle" in logs.
 
 import path from "path";
 import { fileURLToPath } from "url";
@@ -10,11 +15,32 @@ import { fileURLToPath } from "url";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
 const isReplit = !!process.env.REPL_ID;
+const isLocal = process.env.APP_ENV === "local";
+
+// Data-volume env: "replit" gets the reduced footprint, "full" (Oracle or
+// local/Electron) gets the full-scale settings. Existing retention/volume
+// logic below is unchanged — only the type name changed from "oracle" to
+// "full".
+const env: "replit" | "full" = isReplit ? "replit" : "full";
+
+// Display-only three-way label for logging, independent of data-volume env.
+// Explicit and bounded to exactly "replit" | "oracle" | "local" — never a
+// pass-through of an arbitrary APP_ENV value.
+const envLabel: "replit" | "oracle" | "local" = isLocal
+  ? "local"
+  : isReplit
+  ? "replit"
+  : "oracle";
 
 export const config = {
-  // Which environment we're running in
-  env: isReplit ? "replit" : "oracle" as const,
+  // Which environment we're running in (data-volume settings)
+  env,
   isReplit,
+
+  // Three-way label for logging/display only (e.g. "Running in local mode").
+  // Does NOT affect any retention/data-volume logic above — "oracle" and
+  // "local" both map to env: "full".
+  envLabel,
 
   // Where database files are stored
   // In Replit: project root /data/
