@@ -52,15 +52,8 @@ function startServer(dataDir) {
   // Project root is one level up from this electron/ folder
   const projectRoot = path.resolve(__dirname, '..');
 
-  const childEnv = {
-    ...process.env,
-    APP_ENV:     'local',
-    DB_DIR:      dataDir,
-    SERVER_PORT: String(SERVER_PORT),
-    NODE_ENV:    isDev ? 'development' : 'production',
-  };
-
   let cmd, args, cwd;
+  const extraEnv = {};
 
   if (isDev) {
     // Dev: run server source directly via tsx (no pre-build required)
@@ -74,7 +67,19 @@ function startServer(dataDir) {
     cmd  = process.execPath;   // node bundled inside Electron
     args = [path.join(process.resourcesPath, 'server-dist', 'index.js')];
     cwd  = path.join(process.resourcesPath, 'server-dist');
+    // Tell Electron's bundled binary to run this script as plain Node.js
+    // instead of launching a second Electron app instance.
+    extraEnv.ELECTRON_RUN_AS_NODE = '1';
   }
+
+  const childEnv = {
+    ...process.env,
+    APP_ENV:     'local',
+    DB_DIR:      dataDir,
+    SERVER_PORT: String(SERVER_PORT),
+    NODE_ENV:    isDev ? 'development' : 'production',
+    ...extraEnv,
+  };
 
   serverProcess = spawn(cmd, args, {
     env:   childEnv,
