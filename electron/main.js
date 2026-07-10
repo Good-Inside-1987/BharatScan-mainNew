@@ -64,7 +64,7 @@ function startServer(dataDir) {
 
   if (isDev) {
     // Dev: run server source directly via tsx (no pre-build required)
-    cmd  = path.join(projectRoot, 'node_modules', '.bin', 'tsx');
+    cmd  = path.join(projectRoot, 'server', 'node_modules', '.bin', 'tsx');
     args = [path.join(projectRoot, 'server', 'src', 'index.ts')];
     cwd  = projectRoot;
   } else {
