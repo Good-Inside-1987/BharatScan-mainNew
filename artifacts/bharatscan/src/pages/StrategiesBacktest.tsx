@@ -8,7 +8,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ConditionRow, newCondition, NameModeContext } from "@/components/ConditionRow";
 import { FilterGroupBlock, type DragSrc } from "@/components/FilterGroupBlock";
 import { LogicModeSelect } from "@/components/LogicModeSelect";
@@ -47,7 +47,9 @@ interface StrategySettings {
   capital: number;
   useQty: boolean;
   qty: number;
-  entryExecution: "next_open" | "this_close" | "cross_prev_high" | "cross_prev_close" | "cross_prev_low";
+  entryExecution: "next_open" | "this_close"
+    | "cross_above_prev_high" | "cross_above_prev_close" | "cross_above_prev_low"
+    | "cross_below_prev_high" | "cross_below_prev_close" | "cross_below_prev_low";
   stopLoss: number;
   target: number;
   maxHoldingDays: number;
@@ -215,17 +217,24 @@ function runStrategyBacktest(
           if (nextBarIdx < 0) continue;
           const nextBar = h.bars[nextBarIdx];
           // Compute candidate entry price based on execution rule.
-          // cross_prev_* = buy-stop at that level: only enters if next day's range reaches it.
+          // cross_above_* = next day's high must reach/exceed the ref level → enter at ref (buy-stop breakout).
+          // cross_below_* = next day's low must reach/breach the ref level → enter at ref (sell-stop breakdown).
           let entryPrice: number;
           if (settings.entryExecution === "next_open") {
             entryPrice = nextBar.open;
           } else if (settings.entryExecution === "this_close") {
             entryPrice = r.close;
-          } else if (settings.entryExecution === "cross_prev_high") {
+          } else if (settings.entryExecution === "cross_above_prev_high") {
             entryPrice = nextBar.high >= r.high ? r.high : 0;
-          } else if (settings.entryExecution === "cross_prev_close") {
+          } else if (settings.entryExecution === "cross_above_prev_close") {
             entryPrice = nextBar.high >= r.close ? r.close : 0;
-          } else if (settings.entryExecution === "cross_prev_low") {
+          } else if (settings.entryExecution === "cross_above_prev_low") {
+            entryPrice = nextBar.high >= r.low ? r.low : 0;
+          } else if (settings.entryExecution === "cross_below_prev_high") {
+            entryPrice = nextBar.low <= r.high ? r.high : 0;
+          } else if (settings.entryExecution === "cross_below_prev_close") {
+            entryPrice = nextBar.low <= r.close ? r.close : 0;
+          } else if (settings.entryExecution === "cross_below_prev_low") {
             entryPrice = nextBar.low <= r.low ? r.low : 0;
           } else {
             entryPrice = nextBar.open;
@@ -1321,9 +1330,20 @@ export default function StrategiesBacktest() {
                   <SelectContent>
                     <SelectItem value="next_open">Next Day Open</SelectItem>
                     <SelectItem value="this_close">Signal Day Close</SelectItem>
-                    <SelectItem value="cross_prev_high">Next Day Cross Prev High</SelectItem>
-                    <SelectItem value="cross_prev_close">Next Day Cross Prev Close</SelectItem>
-                    <SelectItem value="cross_prev_low">Next Day Cross Prev Low</SelectItem>
+                    <SelectSeparator />
+                    <SelectGroup>
+                      <SelectLabel className="text-[10px] text-muted-foreground px-2 py-0.5">↑ Cross Above (Breakout)</SelectLabel>
+                      <SelectItem value="cross_above_prev_high">↑ Cross Above Prev High</SelectItem>
+                      <SelectItem value="cross_above_prev_close">↑ Cross Above Prev Close</SelectItem>
+                      <SelectItem value="cross_above_prev_low">↑ Cross Above Prev Low</SelectItem>
+                    </SelectGroup>
+                    <SelectSeparator />
+                    <SelectGroup>
+                      <SelectLabel className="text-[10px] text-muted-foreground px-2 py-0.5">↓ Cross Below (Breakdown)</SelectLabel>
+                      <SelectItem value="cross_below_prev_high">↓ Cross Below Prev High</SelectItem>
+                      <SelectItem value="cross_below_prev_close">↓ Cross Below Prev Close</SelectItem>
+                      <SelectItem value="cross_below_prev_low">↓ Cross Below Prev Low</SelectItem>
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
