@@ -885,8 +885,19 @@ const Index = () => {
                     </div>
                     <button
                       type="button"
-                      onClick={() => { setFilterItems([]); setTopLogicMode("all"); }}
-                      title="Clear all filters"
+                      onClick={() => {
+                        setFilterItems([]);
+                        setTopLogicMode("all");
+                        setScanName("");
+                        setLoadedScanId(undefined);
+                        setScanDirection("long");
+                        setResults(null);
+                        setBacktest(null);
+                        setBacktestSelectedDate(null);
+                        setBacktestResults(null);
+                        setLastAction(null);
+                      }}
+                      title="New scan — clear everything"
                       className="self-end flex items-center justify-center rounded-md text-orange-400 hover:text-orange-300 hover:bg-orange-400/10 transition-colors p-0.5"
                     >
                       <X className="h-4 w-4" strokeWidth={2.5} />
