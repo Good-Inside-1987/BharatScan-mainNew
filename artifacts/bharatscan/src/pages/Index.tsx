@@ -868,7 +868,7 @@ const Index = () => {
                             key={m}
                             type="button"
                             onClick={() => setNameMode(m)}
-                            className={`px-2 py-0.5 text-[10px] font-semibold rounded-sm transition-colors ${
+                            className={`px-1.5 py-px text-[9px] font-semibold rounded-sm transition-colors ${
                               nameMode === m
                                 ? m === "full"
                                   ? "bg-primary text-primary-foreground"
