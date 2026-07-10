@@ -348,14 +348,19 @@ export default function Settings() {
       .finally(() => setBrokersLoading(false));
   }, [activeSection]);
 
-  // ── Scheduler status: load when broker section becomes active ─────────────
+  // ── Scheduler status: load when broker section becomes active, refresh every minute ──
   useEffect(() => {
     if (activeSection !== "broker") return;
-    setSchedulerLoading(true);
-    apiGetSchedulerStatus()
-      .then(setSchedulerStatus)
-      .catch(() => setSchedulerStatus(null))
-      .finally(() => setSchedulerLoading(false));
+    const load = () => {
+      setSchedulerLoading(true);
+      apiGetSchedulerStatus()
+        .then(setSchedulerStatus)
+        .catch(() => setSchedulerStatus(null))
+        .finally(() => setSchedulerLoading(false));
+    };
+    load();
+    const interval = setInterval(load, 60_000);
+    return () => clearInterval(interval);
   }, [activeSection]);
 
   // ── Backfill dashboard: load when broker section becomes active ───────────
