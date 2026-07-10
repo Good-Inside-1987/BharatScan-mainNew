@@ -8,6 +8,8 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ChevronDown } from "lucide-react";
 import {
   apiListScans, apiDeleteScan, apiToggleFavorite, apiDuplicateScan, apiCreateScan,
   type ApiScan,
@@ -252,27 +254,27 @@ export default function SavedScanPage() {
                         <Star className={`h-3.5 w-3.5 transition-colors ${favOnly ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/40 hover:text-yellow-400"}`} />
                       </button>
                     </th>
-                    <th className="text-left px-3 py-1">
-                      <div className="flex items-center gap-2">
-                        <span>Name</span>
-                        {/* Direction filter */}
-                        <div className="inline-flex rounded border border-border bg-input p-px">
-                          {(["all", "long", "short"] as const).map((d) => (
-                            <button key={d} type="button"
-                              onClick={() => setDirFilter(d)}
-                              className={`px-1.5 py-px text-[9px] font-semibold rounded-sm transition-colors ${
-                                dirFilter === d
-                                  ? d === "long"  ? "bg-success text-background"
-                                  : d === "short" ? "bg-destructive text-destructive-foreground"
-                                  :                 "bg-muted-foreground/30 text-foreground"
-                                  : "text-muted-foreground hover:text-foreground"
-                              }`}>
-                              {d === "all" ? "All" : d === "long" ? "Long" : "Short"}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+                    {/* Direction column header with dropdown filter */}
+                    <th className="px-2 py-1 w-14">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button type="button" className={`inline-flex items-center gap-0.5 rounded px-1.5 py-px text-[9px] font-bold uppercase tracking-wide transition-colors border ${
+                            dirFilter === "long"  ? "bg-success/15 border-success/30 text-success" :
+                            dirFilter === "short" ? "bg-destructive/15 border-destructive/30 text-destructive-bright" :
+                            "border-border text-muted-foreground hover:text-foreground"
+                          }`}>
+                            {dirFilter === "all" ? "Dir" : dirFilter === "long" ? "Long" : "Short"}
+                            <ChevronDown className="h-2.5 w-2.5" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="min-w-[90px]">
+                          <DropdownMenuItem onClick={() => setDirFilter("all")} className={`text-xs ${dirFilter === "all" ? "font-bold" : ""}`}>All</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setDirFilter("long")} className={`text-xs text-success ${dirFilter === "long" ? "font-bold" : ""}`}>Long</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setDirFilter("short")} className={`text-xs text-destructive-bright ${dirFilter === "short" ? "font-bold" : ""}`}>Short</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </th>
+                    <th className="text-left px-3 py-1">Name</th>
                     <th className="text-left px-3 py-1">Modified</th>
                     <th className="text-left px-3 py-1">Saved On</th>
                     <th className="text-right px-3 py-1">Actions</th>
@@ -281,26 +283,27 @@ export default function SavedScanPage() {
                 <tbody>
                   {filtered.map((s, i) => (
                     <tr key={s.id} className={`border-t border-border/50 hover:bg-primary/5 transition-colors ${i % 2 === 0 ? "bg-card" : "bg-muted/10"}`}>
-                      {/* Favorite + direction badge */}
+                      {/* Favorite */}
                       <td className="px-3 py-1.5">
-                        <div className="flex flex-col items-center gap-0.5">
-                          <button type="button" onClick={() => handleToggleFavorite(s.id)}
-                            title={s.is_favorite ? "Remove favorite" : "Mark favorite"}>
-                            <Star className={`h-3.5 w-3.5 transition-colors ${s.is_favorite ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30 hover:text-yellow-400"}`} />
-                          </button>
-                          {(() => {
-                            const dir = parseScanDirection(s.scan_json);
-                            return dir ? (
-                              <span className={`inline-flex items-center rounded px-1 py-px text-[8px] font-bold leading-none ${
-                                dir === "long"
-                                  ? "bg-success/15 border border-success/30 text-success"
-                                  : "bg-destructive/15 border border-destructive/30 text-destructive-bright"
-                              }`}>
-                                {dir === "long" ? "L" : "S"}
-                              </span>
-                            ) : null;
-                          })()}
-                        </div>
+                        <button type="button" onClick={() => handleToggleFavorite(s.id)}
+                          title={s.is_favorite ? "Remove favorite" : "Mark favorite"}>
+                          <Star className={`h-3.5 w-3.5 transition-colors ${s.is_favorite ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30 hover:text-yellow-400"}`} />
+                        </button>
+                      </td>
+                      {/* Direction badge */}
+                      <td className="px-2 py-1.5 text-center">
+                        {(() => {
+                          const dir = parseScanDirection(s.scan_json);
+                          return dir ? (
+                            <span className={`inline-flex items-center rounded px-1.5 py-px text-[9px] font-bold leading-none ${
+                              dir === "long"
+                                ? "bg-success/15 border border-success/30 text-success"
+                                : "bg-destructive/15 border border-destructive/30 text-destructive-bright"
+                            }`}>
+                              {dir === "long" ? "Long" : "Short"}
+                            </span>
+                          ) : <span className="text-muted-foreground/30">—</span>;
+                        })()}
                       </td>
                       {/* Name — Load Scan button sits right before the name */}
                       <td className="px-3 py-1.5">
