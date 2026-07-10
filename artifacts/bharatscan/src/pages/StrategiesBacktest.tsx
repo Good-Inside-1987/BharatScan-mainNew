@@ -509,8 +509,8 @@ function ScanBuilderPanel({ title, filterLabel, series, onChange, conditionClipb
   }
 
   return (
-    <Card className="shadow-card py-3 px-6">
-      <div className="flex items-center justify-between mb-3">
+    <Card className="shadow-card py-2 px-4">
+      <div className="flex items-center justify-between mb-1.5">
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-bold tracking-wide text-muted-foreground uppercase">{title}</h2>
@@ -548,7 +548,7 @@ function ScanBuilderPanel({ title, filterLabel, series, onChange, conditionClipb
         )}
       </div>
 
-      <div className="rounded-lg border border-border bg-secondary/20 p-2.5">
+      <div className="rounded-lg border border-border bg-secondary/20 p-2">
         {filterItems.length > 0 && (
           <NameModeContext.Provider value={nameMode}>
             <div className="space-y-1 mb-2">
@@ -775,7 +775,7 @@ function ScanBuilderPanel({ title, filterLabel, series, onChange, conditionClipb
       </div>
 
       {/* Save / Load / Import / Export row */}
-      <div className="flex flex-wrap items-center gap-1 mt-1.5">
+      <div className="flex flex-wrap items-center gap-1 mt-1">
         <Input placeholder="Scan name…" value={scanName} onChange={(e) => setScanName(e.target.value)} className="h-7 w-36 bg-input text-xs" />
         <Button variant="outline" size="sm" onClick={handleSave} disabled={!scanName.trim()} className="h-7 px-2 text-xs" title="Save this scan">
           <Save className="h-3 w-3" /> Save
@@ -1259,7 +1259,7 @@ export default function StrategiesBacktest() {
         <Card className="shadow-card overflow-hidden">
           <button
             type="button"
-            className="w-full flex items-center gap-3 px-6 py-3 hover:bg-muted/10 transition-colors"
+            className="w-full flex items-center gap-3 px-4 py-2 hover:bg-muted/10 transition-colors"
             onClick={() => setSettingsOpen(o => !o)}
           >
             <Settings2 className="h-4 w-4 text-muted-foreground" />
@@ -1273,7 +1273,7 @@ export default function StrategiesBacktest() {
           </button>
 
           {settingsOpen && (
-            <div className="px-6 pb-4 border-t border-border grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-3 pt-4">
+            <div className="px-4 pb-3 border-t border-border grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2 pt-3">
               {/* Capital / Qty */}
               <div className="space-y-1">
                 <div className="flex items-center gap-1.5">
