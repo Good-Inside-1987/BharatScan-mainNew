@@ -19,6 +19,7 @@ import paperTradingRouter from "./routes/paperTrading.js";
 import { getServiceStats } from "./services/marketDataService.js";
 import brokerConnectionsRouter from "./routes/brokerConnections.js";
 import marketDataRouter from "./routes/marketData.js";
+import { startScheduler } from "./services/scheduler.js";
 
 void appDb;
 void marketDb;
@@ -173,6 +174,7 @@ if (process.env.NODE_ENV === "production") {
 
 app.listen(port, () => {
   console.log(`BharatScan server running on http://localhost:${port}`);
+  startScheduler();
 });
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
