@@ -640,9 +640,9 @@ const Index = () => {
               Mode = Stocks | Options. Universe = dropdown of categories
               loaded from the All Watchlist CSV (plus an "All CSV Stocks"
               entry that means "every loaded equity"). */}
-          <div className="flex flex-wrap items-center gap-2 mb-4 py-1 pr-1 pl-3 rounded-lg border border-border bg-secondary/30">
+          <div className="flex flex-wrap items-center gap-2 mb-2 py-0.5 pr-1 pl-3 rounded-lg border border-border bg-secondary/30">
             <span className="text-xs text-muted-foreground font-medium pr-1">Mode:</span>
-            <div className="inline-flex rounded-md border border-border bg-input p-0.5">
+            <div className="inline-flex rounded border border-border bg-input p-px">
               {([
                 { v: "stocks", l: "Stocks" },
                 { v: "options", l: "Options" },
@@ -651,7 +651,7 @@ const Index = () => {
                   key={m.v}
                   type="button"
                   onClick={() => setScanMode(m.v)}
-                  className={`px-3 py-1 text-xs font-semibold rounded-sm transition-colors ${
+                  className={`px-2 py-px text-xs font-semibold rounded-sm transition-colors ${
                     scanMode === m.v
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -663,11 +663,11 @@ const Index = () => {
               ))}
             </div>
 
-            <span className="mx-2 h-5 w-px bg-border" />
+            <span className="mx-1 h-4 w-px bg-border" />
 
             <span className="text-xs text-muted-foreground font-medium pr-1">Universe:</span>
             <Select value={universeId} onValueChange={setUniverseId}>
-              <SelectTrigger className="w-auto min-w-[100px] max-w-[320px] h-8 bg-input text-xs">
+              <SelectTrigger className="w-auto min-w-[100px] max-w-[320px] h-6 bg-input text-xs">
                 <SelectValue placeholder="Pick a universe…" />
               </SelectTrigger>
               <SelectContent>
