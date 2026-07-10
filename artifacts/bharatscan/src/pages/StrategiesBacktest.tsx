@@ -1109,7 +1109,17 @@ export default function StrategiesBacktest() {
               <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">Direction</span>
               <div className="inline-flex rounded-md border border-border bg-input p-px">
                 {(["long", "short"] as const).map(d => (
-                  <button key={d} type="button" onClick={() => setDirection(d)}
+                  <button key={d} type="button" onClick={() => {
+                    setDirection(d);
+                    setSettings(s => {
+                      const ex = s.entryExecution;
+                      if (d === "short" && ex.startsWith("cross_above_"))
+                        return { ...s, entryExecution: ex.replace("cross_above_", "cross_below_") as StrategySettings["entryExecution"] };
+                      if (d === "long" && ex.startsWith("cross_below_"))
+                        return { ...s, entryExecution: ex.replace("cross_below_", "cross_above_") as StrategySettings["entryExecution"] };
+                      return s;
+                    });
+                  }}
                     className={`px-2 py-px text-[10px] font-semibold rounded-sm transition-colors capitalize ${
                       direction === d
                         ? d === "long" ? "bg-success text-background" : "bg-destructive-bright text-background"
