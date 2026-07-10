@@ -227,21 +227,15 @@ export default function SavedScanPage() {
               <Loader2 className="h-4 w-4 animate-spin" />
               <span className="text-xs">Loading…</span>
             </div>
-          ) : filtered.length === 0 ? (
+          ) : scans.length === 0 ? (
             <div className="py-10 text-center">
               <FolderOpen className="h-8 w-8 text-muted-foreground/20 mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground font-medium">
-                {scans.length === 0 ? "No saved scans yet" : "No scans match your search"}
-              </p>
-              <p className="text-xs text-muted-foreground/50 mt-1">
-                {scans.length === 0 ? "Create and save a scan from the Create Scan page" : "Try a different search term"}
-              </p>
-              {scans.length === 0 && (
-                <Button size="sm" className="mt-4 h-7 text-xs bg-gradient-primary text-primary-foreground"
-                  onClick={() => navigate("/create-scan")}>
-                  Go to Create Scan
-                </Button>
-              )}
+              <p className="text-sm text-muted-foreground font-medium">No saved scans yet</p>
+              <p className="text-xs text-muted-foreground/50 mt-1">Create and save a scan from the Create Scan page</p>
+              <Button size="sm" className="mt-4 h-7 text-xs bg-gradient-primary text-primary-foreground"
+                onClick={() => navigate("/create-scan")}>
+                Go to Create Scan
+              </Button>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -281,6 +275,13 @@ export default function SavedScanPage() {
                   </tr>
                 </thead>
                 <tbody>
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-xs text-muted-foreground">
+                        No {dirFilter !== "all" ? dirFilter : ""} scans match your filters
+                      </td>
+                    </tr>
+                  )}
                   {filtered.map((s, i) => (
                     <tr key={s.id} className={`border-t border-border/50 hover:bg-primary/5 transition-colors ${i % 2 === 0 ? "bg-card" : "bg-muted/10"}`}>
                       {/* Favorite */}
