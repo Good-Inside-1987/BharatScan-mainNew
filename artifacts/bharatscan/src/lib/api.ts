@@ -130,6 +130,36 @@ export interface ApiSchedulerStatus {
 export const apiGetSchedulerStatus = () =>
   request<ApiSchedulerStatus>("/market-data/scheduler-status");
 
+export interface ApiBackfillSymbolProgress {
+  symbol: string;
+  resolution: string;
+  chunksRemaining: number;
+  estimatedDaysToComplete: number;
+}
+
+export interface ApiMarketStatus {
+  environment: string;
+  databases: { app_db_mb: number; market_db_mb: number; live_db_mb: number };
+  angel_connected: boolean;
+  last_sync: string | null;
+  backfill: {
+    dailyRequestsUsed: number;
+    dailyRequestBudget: number;
+    remainingBudgetToday: number;
+    budgetResetDate: string;
+    queueDepth: number;
+    workerRunning: boolean;
+    adaptersCached: number;
+    symbols: ApiBackfillSymbolProgress[];
+  };
+}
+
+export const apiGetMarketStatus = async () => {
+  const res = await fetch("/api/market/status", { credentials: "include" });
+  if (!res.ok) throw new Error(`API GET /market/status → ${res.status}`);
+  return res.json() as Promise<ApiMarketStatus>;
+};
+
 export const apiSubscribeMarketSymbols = (symbols: string[]) =>
   request<{ ok: boolean; symbols: string[] }>("/market-data/subscribe", {
     method: "POST",

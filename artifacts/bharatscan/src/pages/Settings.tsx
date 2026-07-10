@@ -15,8 +15,8 @@ import {
   apiListDashboards, apiDeleteDashboard,
   apiListPortfolios, apiDeletePortfolio,
   apiListScannerDashboards, apiDeleteScannerDashboard,
-  apiGetSchedulerStatus,
-  type ApiScan, type ApiSchedulerStatus,
+  apiGetSchedulerStatus, apiGetMarketStatus,
+  type ApiScan, type ApiSchedulerStatus, type ApiMarketStatus,
 } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -197,6 +197,10 @@ export default function Settings() {
   const [schedulerStatus, setSchedulerStatus] = useState<ApiSchedulerStatus | null>(null);
   const [schedulerLoading, setSchedulerLoading] = useState(false);
 
+  // ── Backfill dashboard ─────────────────────────────────────────────────────
+  const [marketStatus, setMarketStatus] = useState<ApiMarketStatus | null>(null);
+  const [marketStatusLoading, setMarketStatusLoading] = useState(false);
+
   // ── Load all settings from backend on mount ────────────────────────────────
   useEffect(() => {
     apiGetSettings().then((s) => {
@@ -345,6 +349,21 @@ export default function Settings() {
       .then(setSchedulerStatus)
       .catch(() => setSchedulerStatus(null))
       .finally(() => setSchedulerLoading(false));
+  }, [activeSection]);
+
+  // ── Backfill dashboard: load when broker section becomes active ───────────
+  useEffect(() => {
+    if (activeSection !== "broker") return;
+    const load = () => {
+      setMarketStatusLoading(true);
+      apiGetMarketStatus()
+        .then(setMarketStatus)
+        .catch(() => setMarketStatus(null))
+        .finally(() => setMarketStatusLoading(false));
+    };
+    load();
+    const interval = setInterval(load, 30_000);
+    return () => clearInterval(interval);
   }, [activeSection]);
 
   // ── Broker: add ───────────────────────────────────────────────────────────
@@ -1262,6 +1281,88 @@ export default function Settings() {
                       </div>
                     </div>
                     <p className="text-[10px] text-muted-foreground/60 pt-1">Timezone: {schedulerStatus.timezone}</p>
+                  </>
+                )}
+              </div>
+            </SectionCard>
+          )}
+
+          {activeSection === "broker" && (
+            <SectionCard title="Backfill Dashboard" icon={Database}>
+              <div className="py-3 space-y-3">
+                {marketStatusLoading && !marketStatus && (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+
+                {!marketStatusLoading && !marketStatus && (
+                  <p className="text-[10px] text-muted-foreground py-2">Could not load backfill status.</p>
+                )}
+
+                {marketStatus && (
+                  <>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                        <span>Requests used today</span>
+                        <span className="font-mono text-foreground">
+                          {marketStatus.backfill.dailyRequestsUsed} / {marketStatus.backfill.dailyRequestBudget}
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${
+                            marketStatus.backfill.remainingBudgetToday === 0 ? "bg-red-400" : "bg-emerald-400"
+                          }`}
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              (marketStatus.backfill.dailyRequestsUsed /
+                                Math.max(1, marketStatus.backfill.dailyRequestBudget)) *
+                                100
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
+                      <div>
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Queue Depth</span>
+                        <span className="text-foreground font-mono">{marketStatus.backfill.queueDepth}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Worker</span>
+                        <span className={marketStatus.backfill.workerRunning ? "text-emerald-400" : "text-muted-foreground"}>
+                          {marketStatus.backfill.workerRunning ? "Running" : "Idle"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pt-1 border-t border-border/30">
+                      <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-1">
+                        Per-Symbol Progress
+                      </span>
+                      {marketStatus.backfill.symbols.length === 0 ? (
+                        <p className="text-[10px] text-muted-foreground py-1">No pending backfill work.</p>
+                      ) : (
+                        <div className="space-y-1 max-h-48 overflow-y-auto">
+                          {marketStatus.backfill.symbols.map((s) => (
+                            <div
+                              key={`${s.symbol}-${s.resolution}`}
+                              className="flex items-center justify-between text-[10px] py-1 border-b border-border/20 last:border-0"
+                            >
+                              <span className="font-mono text-foreground">{s.symbol}</span>
+                              <span className="text-muted-foreground">{s.resolution}</span>
+                              <span className="text-muted-foreground">{s.chunksRemaining} chunks left</span>
+                              <span className="text-muted-foreground">
+                                ~{s.estimatedDaysToComplete} day{s.estimatedDaysToComplete === 1 ? "" : "s"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
               </div>

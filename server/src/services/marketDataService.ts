@@ -651,12 +651,33 @@ export async function getLiveQuotes(symbols: string[]): Promise<Quote[]> {
  * Exposed through GET /api/market/status for operator monitoring.
  */
 export function getServiceStats() {
+  const remainingBudgetToday = Math.max(0, config.backfillDailyRequestBudget - dailyCount);
+
+  // Group queued chunks by (symbol, resolution) so the dashboard can show
+  // per-symbol progress and a rough ETA based on today's remaining budget.
+  const bySymbol = new Map<string, { symbol: string; resolution: string; chunksRemaining: number }>();
+  for (const task of queue) {
+    const key = `${task.symbol}::${task.resolution}`;
+    const entry = bySymbol.get(key);
+    if (entry) entry.chunksRemaining++;
+    else bySymbol.set(key, { symbol: task.symbol, resolution: task.resolution, chunksRemaining: 1 });
+  }
+
+  const symbols = Array.from(bySymbol.values()).map((s) => ({
+    ...s,
+    estimatedDaysToComplete: remainingBudgetToday > 0
+      ? Math.ceil(s.chunksRemaining / Math.max(1, config.backfillDailyRequestBudget))
+      : Math.ceil(s.chunksRemaining / Math.max(1, config.backfillDailyRequestBudget)) + 1,
+  }));
+
   return {
     dailyRequestsUsed:  dailyCount,
     dailyRequestBudget: config.backfillDailyRequestBudget,
+    remainingBudgetToday,
     budgetResetDate:    budgetDate,
     queueDepth:         queue.length,
     workerRunning,
     adaptersCached:     adapterCache.size,
+    symbols,
   };
 }
