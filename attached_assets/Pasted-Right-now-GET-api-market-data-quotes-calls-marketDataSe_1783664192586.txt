@@ -1,0 +1,17 @@
+Right now GET /api/market-data/quotes calls marketDataService.getLiveQuotes(symbols), which just proxies straight to adapter.getQuotes() — a fresh REST call to the broker every single time. Meanwhile server/src/services/liveFeedService.ts already has a working WebSocket tick cache with getLiveQuote(symbol) and getLiveQuotes(symbols) functions that read from cached live ticks, but nothing calls them.
+
+Update marketDataService.getLiveQuotes(symbols) in server/src/services/marketDataService.ts to:
+
+1. Import getLiveQuote from ../services/liveFeedService.js.
+2. For each requested symbol, first check liveFeedService.getLiveQuote(symbol). If a cached tick exists, use it — do NOT make a broker REST call for that symbol.
+3. For any symbols with no cached tick yet (not currently subscribed, or subscribed but no tick received yet), fall back to a single REST call via adapter.getQuotes() for just those missing symbols only — not the full list.
+4. After fetching the missing symbols via REST, call liveFeedService.subscribeSymbols() with those same symbols so future requests for them are served from the live cache instead of REST (respecting the existing 200-symbol cap/rotation already implemented in liveFeedService).
+5. Merge the cache-hit quotes and the REST-fallback quotes into a single result array, preserving the original requested order.
+
+Keep all existing typed-error handling (AuthenticationError, SessionExpiredError, RateLimitError, BrokerUnavailableError) exactly as it is now — only change where the quote data comes from, not the error handling around it.
+
+Do NOT change getHistoricalBars() or the backfill logic.
+Do NOT change routes/marketData.ts — this is a marketDataService-only change; the route already calls getLiveQuotes() correctly, it just needs the function itself fixed.
+Do NOT change liveFeedService.ts — its getLiveQuote/getLiveQuotes/subscribeSymbols already work correctly, just call them from marketDataService.
+
+Verify: after subscribing a symbol once, repeated calls to GET /api/market-data/quotes for that symbol do NOT trigger new broker REST calls (check your server logs — you should see WebSocket tick updates, not repeated "quotes request" REST calls, for already-subscribed symbols).

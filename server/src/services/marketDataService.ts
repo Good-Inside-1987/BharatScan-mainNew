@@ -33,6 +33,7 @@ import {
   RateLimitError,
   BrokerUnavailableError,
 } from "../errors/brokerErrors.js";
+import { getLiveQuote, subscribeSymbols } from "./liveFeedService.js";
 
 // ── Internal row types ────────────────────────────────────────────────────────
 
@@ -580,31 +581,60 @@ export async function getHistoricalBars(
 }
 
 /**
- * Fetch live quotes from the connected broker adapter.
+ * Fetch live quotes, preferring the WebSocket tick cache (liveFeedService)
+ * and falling back to a single REST call — for only the symbols missing
+ * from the cache — via the connected broker adapter. Symbols fetched via
+ * REST are subscribed to the live feed so subsequent calls hit the cache.
  * Throws typed broker errors (AuthenticationError, SessionExpiredError,
  * RateLimitError, BrokerUnavailableError) so routes can return distinct
  * HTTP status codes.
- * A WebSocket-based live cache will replace this proxy in the next iteration.
  */
 export async function getLiveQuotes(symbols: string[]): Promise<Quote[]> {
   if (!symbols.length) return [];
 
-  const adapter = await getAuthenticatedAdapter();
-  if (!adapter) {
-    throw noAdapterReason();
+  // ── 1. Serve from the WebSocket tick cache wherever possible ──────────────
+  const cacheHits = new Map<string, Quote>();
+  const missing: string[] = [];
+  for (const symbol of symbols) {
+    const cached = getLiveQuote(symbol);
+    if (cached) cacheHits.set(symbol, cached);
+    else missing.push(symbol);
   }
 
-  try {
-    return await adapter.getQuotes(symbols);
-  } catch (err) {
-    if (
-      err instanceof AuthenticationError ||
-      err instanceof SessionExpiredError ||
-      err instanceof RateLimitError ||
-      err instanceof BrokerUnavailableError
-    ) throw err;
-    classifyAdapterError(err);
+  // ── 2. Fall back to a single REST call for only the missing symbols ───────
+  let restQuotes: Quote[] = [];
+  if (missing.length > 0) {
+    const adapter = await getAuthenticatedAdapter();
+    if (!adapter) {
+      // No cached data and no adapter available — nothing we can serve.
+      if (cacheHits.size === 0) throw noAdapterReason();
+    } else {
+      try {
+        restQuotes = await adapter.getQuotes(missing);
+      } catch (err) {
+        if (
+          err instanceof AuthenticationError ||
+          err instanceof SessionExpiredError ||
+          err instanceof RateLimitError ||
+          err instanceof BrokerUnavailableError
+        ) throw err;
+        classifyAdapterError(err);
+      }
+
+      // Subscribe these symbols so future requests are served from the live
+      // cache instead of REST (respects the 200-symbol cap/rotation).
+      subscribeSymbols(missing);
+    }
   }
+
+  // ── 3. Merge cache hits + REST fallback, preserving requested order ───────
+  const restBySymbol = new Map(restQuotes.map((q) => [q.symbol, q]));
+  const result: Quote[] = [];
+  for (const symbol of symbols) {
+    const quote = cacheHits.get(symbol) ?? restBySymbol.get(symbol);
+    if (quote) result.push(quote);
+  }
+  return result;
 }
 
 /**
