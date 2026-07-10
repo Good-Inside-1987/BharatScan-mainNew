@@ -973,12 +973,12 @@ function AllAccountsPanel({ allHoldings, histories }: { allHoldings: ApiAllHoldi
       </div>
       <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
         <table className="w-full text-xs">
-          <thead className="bg-muted/30 text-[9px] uppercase tracking-wide text-muted-foreground border-b border-border sticky top-0 z-10">
+          <thead className="text-[9px] uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="text-left px-4 py-2">Symbol</th>
-              <th className="text-left px-3 py-2">Portfolio</th>
-              <th className="text-right px-3 py-2">Buy Date</th>
-              <th className="text-right px-3 py-2">Day P&L</th>
+              <th className="text-left px-4 py-2 sticky top-0 z-10 bg-[hsl(var(--muted)/.3)] border-b border-border backdrop-blur-sm">Symbol</th>
+              <th className="text-left px-3 py-2 sticky top-0 z-10 bg-[hsl(var(--muted)/.3)] border-b border-border backdrop-blur-sm">Portfolio</th>
+              <th className="text-right px-3 py-2 sticky top-0 z-10 bg-[hsl(var(--muted)/.3)] border-b border-border backdrop-blur-sm">Buy Date</th>
+              <th className="text-right px-3 py-2 sticky top-0 z-10 bg-[hsl(var(--muted)/.3)] border-b border-border backdrop-blur-sm">Day P&L</th>
             </tr>
           </thead>
           <tbody>
