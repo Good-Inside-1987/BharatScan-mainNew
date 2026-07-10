@@ -1332,14 +1332,14 @@ export default function StrategiesBacktest() {
                     <SelectItem value="this_close">Signal Day Close</SelectItem>
                     <SelectSeparator />
                     <SelectGroup>
-                      <SelectLabel className="text-[10px] text-muted-foreground px-2 py-0.5">↑ Cross Above (Breakout)</SelectLabel>
+                      <SelectLabel className="text-[10px] text-muted-foreground px-2 py-0.5">↑ Next Day Cross Above (Breakout)</SelectLabel>
                       <SelectItem value="cross_above_prev_high">↑ Cross Above Prev High</SelectItem>
                       <SelectItem value="cross_above_prev_close">↑ Cross Above Prev Close</SelectItem>
                       <SelectItem value="cross_above_prev_low">↑ Cross Above Prev Low</SelectItem>
                     </SelectGroup>
                     <SelectSeparator />
                     <SelectGroup>
-                      <SelectLabel className="text-[10px] text-muted-foreground px-2 py-0.5">↓ Cross Below (Breakdown)</SelectLabel>
+                      <SelectLabel className="text-[10px] text-muted-foreground px-2 py-0.5">↓ Next Day Cross Below (Breakdown)</SelectLabel>
                       <SelectItem value="cross_below_prev_high">↓ Cross Below Prev High</SelectItem>
                       <SelectItem value="cross_below_prev_close">↓ Cross Below Prev Close</SelectItem>
                       <SelectItem value="cross_below_prev_low">↓ Cross Below Prev Low</SelectItem>
