@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { db } from "../db.js";
 import { encrypt, decrypt } from "../lib/encryption.js";
 import { getAdapter } from "../adapters/index.js";
-import { registerAdapter } from "../services/marketDataService.js";
+import { registerAdapter, getServiceStats } from "../services/marketDataService.js";
 import {
   AuthenticationError,
   SessionExpiredError,
@@ -390,7 +390,29 @@ router.post("/:id/connect", async (req: Request, res: Response) => {
 
   registerAdapter(row.id, adapter, now);
 
-  res.json({ ok: true, token_generated_at: now, status: BrokerStatus.CONNECTED });
+  // ── Post-login integration check ────────────────────────────────────────
+  // Confirm the adapter cache was actually populated (not just that
+  // registerAdapter() returned without throwing) before reporting success.
+  const statsAfterLogin = getServiceStats();
+  const adapterCachePopulated = statsAfterLogin.adaptersCached > 0;
+  if (!adapterCachePopulated) {
+    console.warn(
+      "[brokerConnections] Login succeeded but adapter cache is empty after registerAdapter() — " +
+      "GET /api/market/status will not reflect this connection until it is retried."
+    );
+  } else {
+    console.log(
+      "[brokerConnections] ✓ Post-login check: adapter cache populated (%d cached)",
+      statsAfterLogin.adaptersCached
+    );
+  }
+
+  res.json({
+    ok: true,
+    token_generated_at: now,
+    status: BrokerStatus.CONNECTED,
+    adapterCachePopulated,
+  });
 });
 
 // ── POST /api/broker-connections/:id/disconnect ───────────────────────────────
