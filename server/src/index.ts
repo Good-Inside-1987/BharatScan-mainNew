@@ -1,3 +1,6 @@
+// Must be the first import: loads .env (non-Replit only) before anything
+// else reads process.env.
+import "./loadEnv.js";
 import express from "express";
 import cors from "cors";
 import path from "path";
