@@ -163,12 +163,18 @@ export default function SavedScanPage() {
     <div className="min-h-screen bg-background">
       <main className="container py-2 space-y-2">
         {/* Page title bar */}
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="shrink-0">
             <h1 className="text-base font-bold tracking-tight text-foreground">Saved Scans</h1>
             <p className="text-[10px] text-muted-foreground">Load or run your saved scan configurations</p>
           </div>
-          <div className="flex items-center gap-2">
+          {/* Search — inline with title to save vertical space */}
+          <div className="relative w-48">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input className="pl-8 h-7 text-xs bg-input" placeholder="Search scans…"
+              value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <div className="flex items-center gap-2 ml-auto">
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleExport} disabled={!scans.length}>
               <Download className="h-3.5 w-3.5" /> Export
             </Button>
@@ -191,13 +197,6 @@ export default function SavedScanPage() {
             </div>
           </Card>
         )}
-
-        {/* Search */}
-        <div className="relative w-56">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input className="pl-8 h-8 text-xs bg-input" placeholder="Search scans…"
-            value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
 
         {/* Table */}
         <Card className="shadow-card overflow-hidden">
