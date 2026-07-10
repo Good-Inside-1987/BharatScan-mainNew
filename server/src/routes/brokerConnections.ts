@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { db } from "../db.js";
 import { encrypt, decrypt } from "../lib/encryption.js";
 import { getAdapter } from "../adapters/index.js";
+import { registerAdapter } from "../services/marketDataService.js";
 import {
   AuthenticationError,
   SessionExpiredError,
@@ -351,8 +352,8 @@ router.post("/:id/connect", async (req: Request, res: Response) => {
   }
 
   let accessToken: string;
+  const adapter = getAdapter(row.broker_name);
   try {
-    const adapter = getAdapter(row.broker_name);
     accessToken = await adapter.login(
       { apiKey, clientCode, pin },
       totp_code.trim(),
@@ -386,6 +387,8 @@ router.post("/:id/connect", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to store access token" });
     return;
   }
+
+  registerAdapter(row.id, adapter, now);
 
   res.json({ ok: true, token_generated_at: now, status: BrokerStatus.CONNECTED });
 });
