@@ -154,6 +154,19 @@ export interface ApiMarketStatus {
   };
 }
 
+export interface ApiQuoteCacheStats {
+  totalRequests: number;
+  requestsFullyCached: number;
+  requestsWithFallback: number;
+  cacheHitSymbols: number;
+  restFallbackSymbols: number;
+  restCallsMade: number;
+  cacheHitRate: number | null;
+}
+
+export const apiGetQuoteCacheStats = () =>
+  request<ApiQuoteCacheStats>("/market-data/quotes/status");
+
 export const apiGetMarketStatus = async () => {
   const res = await fetch("/api/market/status", { credentials: "include" });
   if (!res.ok) throw new Error(`API GET /market/status → ${res.status}`);

@@ -15,8 +15,8 @@ import {
   apiListDashboards, apiDeleteDashboard,
   apiListPortfolios, apiDeletePortfolio,
   apiListScannerDashboards, apiDeleteScannerDashboard,
-  apiGetSchedulerStatus, apiGetMarketStatus,
-  type ApiScan, type ApiSchedulerStatus, type ApiMarketStatus,
+  apiGetSchedulerStatus, apiGetMarketStatus, apiGetQuoteCacheStats,
+  type ApiScan, type ApiSchedulerStatus, type ApiMarketStatus, type ApiQuoteCacheStats,
 } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -201,6 +201,10 @@ export default function Settings() {
   const [marketStatus, setMarketStatus] = useState<ApiMarketStatus | null>(null);
   const [marketStatusLoading, setMarketStatusLoading] = useState(false);
 
+  // ── Live quote cache diagnostics ────────────────────────────────────────────
+  const [quoteCacheStats, setQuoteCacheStats] = useState<ApiQuoteCacheStats | null>(null);
+  const [quoteCacheLoading, setQuoteCacheLoading] = useState(false);
+
   // ── Load all settings from backend on mount ────────────────────────────────
   useEffect(() => {
     apiGetSettings().then((s) => {
@@ -363,6 +367,21 @@ export default function Settings() {
     };
     load();
     const interval = setInterval(load, 30_000);
+    return () => clearInterval(interval);
+  }, [activeSection]);
+
+  // ── Quote cache diagnostics: load when broker section becomes active ──────
+  useEffect(() => {
+    if (activeSection !== "broker") return;
+    const load = () => {
+      setQuoteCacheLoading(true);
+      apiGetQuoteCacheStats()
+        .then(setQuoteCacheStats)
+        .catch(() => setQuoteCacheStats(null))
+        .finally(() => setQuoteCacheLoading(false));
+    };
+    load();
+    const interval = setInterval(load, 15_000);
     return () => clearInterval(interval);
   }, [activeSection]);
 
@@ -1363,6 +1382,71 @@ export default function Settings() {
                         </div>
                       )}
                     </div>
+                  </>
+                )}
+              </div>
+            </SectionCard>
+          )}
+
+          {activeSection === "broker" && (
+            <SectionCard title="Quote Cache Diagnostics" icon={Database}>
+              <div className="py-3 space-y-3">
+                {quoteCacheLoading && !quoteCacheStats && (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+
+                {!quoteCacheLoading && !quoteCacheStats && (
+                  <p className="text-[10px] text-muted-foreground py-2">Could not load quote cache stats.</p>
+                )}
+
+                {quoteCacheStats && (
+                  <>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                        <span>Cache hit rate (symbols)</span>
+                        <span className="font-mono text-foreground">
+                          {quoteCacheStats.cacheHitRate === null
+                            ? "—"
+                            : `${(quoteCacheStats.cacheHitRate * 100).toFixed(1)}%`}
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-emerald-400"
+                          style={{ width: `${(quoteCacheStats.cacheHitRate ?? 0) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
+                      <div>
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Total Requests</span>
+                        <span className="text-foreground font-mono">{quoteCacheStats.totalRequests}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">REST Calls Made</span>
+                        <span className="text-foreground font-mono">{quoteCacheStats.restCallsMade}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Fully Cached Requests</span>
+                        <span className="text-foreground font-mono">{quoteCacheStats.requestsFullyCached}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Requests w/ Fallback</span>
+                        <span className="text-foreground font-mono">{quoteCacheStats.requestsWithFallback}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Cache-Hit Symbols</span>
+                        <span className="text-foreground font-mono">{quoteCacheStats.cacheHitSymbols}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">REST-Fallback Symbols</span>
+                        <span className="text-foreground font-mono">{quoteCacheStats.restFallbackSymbols}</span>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground/60 pt-1">Counters reset on server restart.</p>
                   </>
                 )}
               </div>

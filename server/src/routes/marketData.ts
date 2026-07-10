@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { appDb } from "../db.js";
-import { getHistoricalBars, getLiveQuotes } from "../services/marketDataService.js";
+import { getHistoricalBars, getLiveQuotes, getQuoteCacheStats } from "../services/marketDataService.js";
 import { subscribeSymbols, unsubscribeSymbols } from "../services/liveFeedService.js";
 import { getSchedulerStatus } from "../services/scheduler.js";
 import {
@@ -183,6 +183,10 @@ router.post("/unsubscribe", (req: Request, res: Response) => {
 
 router.get("/scheduler-status", (_req: Request, res: Response) => {
   res.json(getSchedulerStatus());
+});
+
+router.get("/quotes/status", (_req: Request, res: Response) => {
+  res.json(getQuoteCacheStats());
 });
 
 export default router;

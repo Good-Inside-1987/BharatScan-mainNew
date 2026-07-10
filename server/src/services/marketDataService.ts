@@ -187,6 +187,26 @@ function noAdapterReason(): AuthenticationError | SessionExpiredError {
 let dailyCount = 0;
 let budgetDate = todayIST();
 
+// ── Live quote cache-hit / REST-fallback diagnostics ───────────────────────────
+
+const quoteStats = {
+  totalRequests:        0,
+  requestsFullyCached:  0,
+  requestsWithFallback: 0,
+  cacheHitSymbols:      0,
+  restFallbackSymbols:  0,
+  restCallsMade:        0,
+};
+
+/** Snapshot of live-quote cache-hit vs REST-fallback counters since process start. */
+export function getQuoteCacheStats() {
+  const totalSymbols = quoteStats.cacheHitSymbols + quoteStats.restFallbackSymbols;
+  return {
+    ...quoteStats,
+    cacheHitRate: totalSymbols > 0 ? quoteStats.cacheHitSymbols / totalSymbols : null,
+  };
+}
+
 function todayIST(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: config.timezone });
 }
@@ -601,6 +621,8 @@ export async function getHistoricalBars(
 export async function getLiveQuotes(symbols: string[]): Promise<Quote[]> {
   if (!symbols.length) return [];
 
+  quoteStats.totalRequests++;
+
   // ── 1. Serve from the WebSocket tick cache wherever possible ──────────────
   const cacheHits = new Map<string, Quote>();
   const missing: string[] = [];
@@ -609,6 +631,11 @@ export async function getLiveQuotes(symbols: string[]): Promise<Quote[]> {
     if (cached) cacheHits.set(symbol, cached);
     else missing.push(symbol);
   }
+
+  quoteStats.cacheHitSymbols += cacheHits.size;
+  quoteStats.restFallbackSymbols += missing.length;
+  if (missing.length > 0) quoteStats.requestsWithFallback++;
+  else quoteStats.requestsFullyCached++;
 
   // ── 2. Fall back to a single REST call for only the missing symbols ───────
   let restQuotes: Quote[] = [];
@@ -619,6 +646,7 @@ export async function getLiveQuotes(symbols: string[]): Promise<Quote[]> {
       if (cacheHits.size === 0) throw noAdapterReason();
     } else {
       try {
+        quoteStats.restCallsMade++;
         restQuotes = await adapter.getQuotes(missing);
       } catch (err) {
         if (
