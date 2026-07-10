@@ -1077,16 +1077,16 @@ export default function StrategiesBacktest() {
       <main className="container py-2 space-y-2">
 
         {/* ─── Direction + Global Controls ─── */}
-        <Card className="py-2 px-4 shadow-card">
-          <div className="flex flex-wrap items-center gap-3">
+        <Card className="py-1 px-4 shadow-card">
+          <div className="flex flex-wrap items-center gap-2">
 
             {/* Long / Short toggle */}
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">Direction</span>
-              <div className="inline-flex rounded-md border border-border bg-input p-0.5">
+            <div className="flex flex-col gap-px">
+              <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">Direction</span>
+              <div className="inline-flex rounded-md border border-border bg-input p-px">
                 {(["long", "short"] as const).map(d => (
                   <button key={d} type="button" onClick={() => setDirection(d)}
-                    className={`px-3 py-1 text-xs font-semibold rounded-sm transition-colors capitalize ${
+                    className={`px-2 py-px text-[10px] font-semibold rounded-sm transition-colors capitalize ${
                       direction === d
                         ? d === "long" ? "bg-success text-background" : "bg-destructive-bright text-background"
                         : "text-muted-foreground hover:text-foreground"
@@ -1097,15 +1097,15 @@ export default function StrategiesBacktest() {
               </div>
             </div>
 
-            <span className="h-8 w-px bg-border" />
+            <span className="h-5 w-px bg-border" />
 
             {/* Mode */}
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">Mode</span>
-              <div className="inline-flex rounded-md border border-border bg-input p-0.5">
+            <div className="flex flex-col gap-px">
+              <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">Mode</span>
+              <div className="inline-flex rounded-md border border-border bg-input p-px">
                 {([{ v: "stocks", l: "Stocks" }, { v: "options", l: "Options" }] as { v: ScanMode; l: string }[]).map(m => (
                   <button key={m.v} type="button" onClick={() => setScanMode(m.v)}
-                    className={`px-3 py-1 text-xs font-semibold rounded-sm transition-colors ${
+                    className={`px-2 py-px text-[10px] font-semibold rounded-sm transition-colors ${
                       scanMode === m.v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
                     }`}>
                     {m.l}
@@ -1114,13 +1114,13 @@ export default function StrategiesBacktest() {
               </div>
             </div>
 
-            <span className="h-8 w-px bg-border" />
+            <span className="h-5 w-px bg-border" />
 
             {/* Universe */}
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">Universe</span>
+            <div className="flex flex-col gap-px">
+              <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">Universe</span>
               <Select value={universeId} onValueChange={setUniverseId}>
-                <SelectTrigger className="w-auto min-w-[130px] max-w-[280px] h-8 bg-input text-xs">
+                <SelectTrigger className="w-auto min-w-[130px] max-w-[280px] h-6 bg-input text-xs">
                   <SelectValue placeholder="Pick universe…" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1135,10 +1135,10 @@ export default function StrategiesBacktest() {
             </div>
 
             {/* Series */}
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">Series</span>
+            <div className="flex flex-col gap-px">
+              <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">Series</span>
               <Select value={series} onValueChange={setSeries}>
-                <SelectTrigger className="w-20 h-8 bg-input text-xs"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-16 h-6 bg-input text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">ALL</SelectItem>
                   <SelectItem value="EQ">EQ</SelectItem>
@@ -1151,23 +1151,23 @@ export default function StrategiesBacktest() {
             {/* Options sub-controls */}
             {scanMode === "options" && optionsData && (
               <Fragment>
-                <span className="h-8 w-px bg-border" />
+                <span className="h-5 w-px bg-border" />
                 <div className="flex items-end gap-2">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">Side</span>
-                    <div className="inline-flex rounded-md border border-border bg-input p-0.5 h-8">
+                  <div className="flex flex-col gap-px">
+                    <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">Side</span>
+                    <div className="inline-flex rounded-md border border-border bg-input p-px h-6">
                       {(["CE", "PE"] as const).map(s => (
                         <button key={s} type="button" onClick={() => setOptSide(s)}
-                          className={`px-2.5 text-[11px] font-semibold rounded-sm transition-colors ${optSide === s ? (s === "CE" ? "bg-success text-background" : "bg-destructive-bright text-background") : "text-muted-foreground hover:text-foreground"}`}>
+                          className={`px-2 text-[10px] font-semibold rounded-sm transition-colors ${optSide === s ? (s === "CE" ? "bg-success text-background" : "bg-destructive-bright text-background") : "text-muted-foreground hover:text-foreground"}`}>
                           {s}
                         </button>
                       ))}
                     </div>
                   </div>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">Expiry</span>
+                  <div className="flex flex-col gap-px">
+                    <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">Expiry</span>
                     <Select value={optExpiry} onValueChange={setOptExpiry}>
-                      <SelectTrigger className="w-[130px] h-8 bg-input text-xs"><SelectValue placeholder="Pick expiry" /></SelectTrigger>
+                      <SelectTrigger className="w-[130px] h-6 bg-input text-xs"><SelectValue placeholder="Pick expiry" /></SelectTrigger>
                       <SelectContent>
                         {Array.from(new Set(Array.from(optionsData.expiriesBySymbol.values()).flat())).sort().map(e => (
                           <SelectItem key={e} value={e}>{e}</SelectItem>
@@ -1175,21 +1175,21 @@ export default function StrategiesBacktest() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">Strike</span>
+                  <div className="flex flex-col gap-px">
+                    <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">Strike</span>
                     <div className="flex items-center gap-1.5">
                       <div className="flex flex-col gap-px">
                         <button type="button" onClick={() => setOptOffset(o => o + 1)}
-                          className="flex items-center justify-center w-5 h-[15px] rounded-t-sm border border-border bg-input hover:bg-accent transition-colors">
-                          <ChevronUp className="h-2.5 w-2.5" />
+                          className="flex items-center justify-center w-4 h-[11px] rounded-t-sm border border-border bg-input hover:bg-accent transition-colors">
+                          <ChevronUp className="h-2 w-2" />
                         </button>
                         <button type="button" onClick={() => setOptOffset(o => o - 1)}
-                          className="flex items-center justify-center w-5 h-[15px] rounded-b-sm border border-border bg-input hover:bg-accent transition-colors">
-                          <ChevronDown className="h-2.5 w-2.5" />
+                          className="flex items-center justify-center w-4 h-[11px] rounded-b-sm border border-border bg-input hover:bg-accent transition-colors">
+                          <ChevronDown className="h-2 w-2" />
                         </button>
                       </div>
-                      <div className="flex items-center gap-1 px-2.5 h-8 rounded-md border border-border bg-input min-w-[64px]">
-                        <span className={`text-[11px] font-bold ${
+                      <div className="flex items-center gap-1 px-2 h-6 rounded-md border border-border bg-input min-w-[56px]">
+                        <span className={`text-[10px] font-bold ${
                           optOffset === 0 ? "text-primary"
                             : (optSide === "CE" ? optOffset > 0 : optOffset < 0) ? "text-fuchsia-400"
                             : "text-success"
@@ -1199,17 +1199,17 @@ export default function StrategiesBacktest() {
                             : (optOffset < 0 ? "OTM" : "ITM")}
                         </span>
                         {optOffset !== 0 && (
-                          <span className="text-[10px] font-mono text-muted-foreground">
+                          <span className="text-[9px] font-mono text-muted-foreground">
                             {optOffset > 0 ? `+${optOffset}` : optOffset}
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">ATM Ref</span>
+                  <div className="flex flex-col gap-px">
+                    <span className="text-[9px] text-muted-foreground uppercase tracking-wide font-semibold">ATM Ref</span>
                     <div
-                      className="inline-flex rounded-md border border-border bg-input p-0.5 h-8"
+                      className="inline-flex rounded-md border border-border bg-input p-px h-6"
                       title={optPriceSource === "futures" ? "ATM determined by Futures close price from FO CSV" : "ATM determined by equity spot close price"}
                     >
                       {(["futures", "spot"] as const).map(src => (
@@ -1217,7 +1217,7 @@ export default function StrategiesBacktest() {
                           key={src}
                           type="button"
                           onClick={() => setOptPriceSource(src)}
-                          className={`px-2 text-[11px] font-semibold rounded-sm transition-colors ${
+                          className={`px-2 text-[10px] font-semibold rounded-sm transition-colors ${
                             optPriceSource === src
                               ? src === "futures" ? "bg-amber-500/80 text-background" : "bg-sky-500/80 text-background"
                               : "text-muted-foreground hover:text-foreground"
