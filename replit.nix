@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.imagemagick
     pkgs.libgbm
     pkgs.at-spi2-core
     pkgs.alsa-lib
