@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { User, Palette, Bell, ScanSearch, Database, FileInput, Shield, HardDrive, ChevronRight, Moon, Sun, Monitor, Check, Download, Upload, Loader2, Trash2, Plug, PlugZap, RefreshCw, LogOut, Plus, ExternalLink, Clock } from "lucide-react";
+import { LineChart, Line, ResponsiveContainer, YAxis } from "recharts";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -204,6 +205,7 @@ export default function Settings() {
   // ── Live quote cache diagnostics ────────────────────────────────────────────
   const [quoteCacheStats, setQuoteCacheStats] = useState<ApiQuoteCacheStats | null>(null);
   const [quoteCacheLoading, setQuoteCacheLoading] = useState(false);
+  const [quoteCacheHistory, setQuoteCacheHistory] = useState<{ t: number; rate: number }[]>([]);
 
   // ── Load all settings from backend on mount ────────────────────────────────
   useEffect(() => {
@@ -376,7 +378,14 @@ export default function Settings() {
     const load = () => {
       setQuoteCacheLoading(true);
       apiGetQuoteCacheStats()
-        .then(setQuoteCacheStats)
+        .then((stats) => {
+          setQuoteCacheStats(stats);
+          if (stats.cacheHitRate !== null) {
+            setQuoteCacheHistory((prev) =>
+              [...prev, { t: Date.now(), rate: stats.cacheHitRate! * 100 }].slice(-30)
+            );
+          }
+        })
         .catch(() => setQuoteCacheStats(null))
         .finally(() => setQuoteCacheLoading(false));
     };
@@ -1419,6 +1428,29 @@ export default function Settings() {
                         />
                       </div>
                     </div>
+
+                    {quoteCacheHistory.length > 1 && (
+                      <div className="space-y-1">
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50">
+                          Cache-Hit Rate Trend (last {quoteCacheHistory.length} samples)
+                        </span>
+                        <div className="h-16 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={quoteCacheHistory}>
+                              <YAxis domain={[0, 100]} hide />
+                              <Line
+                                type="monotone"
+                                dataKey="rate"
+                                stroke="hsl(var(--primary))"
+                                strokeWidth={1.5}
+                                dot={false}
+                                isAnimationActive={false}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
                       <div>
