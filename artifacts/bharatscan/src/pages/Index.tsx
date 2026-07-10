@@ -855,9 +855,9 @@ const Index = () => {
                       toast.success(`Copied scan (${flattenItems(filterItems).length} filter${flattenItems(filterItems).length === 1 ? "" : "s"})`);
                     }}
                     title="Copy this entire scan"
-                    className="inline-flex items-center px-2 py-1 text-xs font-bold rounded-md bg-success text-background hover:opacity-90 transition-opacity"
+                    className="inline-flex items-center px-1.5 py-0.5 text-xs font-bold rounded bg-success text-background hover:opacity-90 transition-opacity"
                   >
-                    <Copy className="h-3.5 w-3.5" />
+                    <Copy className="h-3 w-3" />
                   </button>
                   <div className="ml-auto flex items-center gap-3">
                     <div className="flex flex-col items-center gap-0.5">
