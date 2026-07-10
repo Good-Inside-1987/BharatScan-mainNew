@@ -47,7 +47,7 @@ interface StrategySettings {
   capital: number;
   useQty: boolean;
   qty: number;
-  entryExecution: "next_open" | "this_close";
+  entryExecution: "next_open" | "this_close" | "cross_prev_high" | "cross_prev_close" | "cross_prev_low";
   stopLoss: number;
   target: number;
   maxHoldingDays: number;
@@ -214,7 +214,22 @@ function runStrategyBacktest(
           const nextBarIdx = findBarIdx(h, nextDate);
           if (nextBarIdx < 0) continue;
           const nextBar = h.bars[nextBarIdx];
-          const entryPrice = settings.entryExecution === "next_open" ? nextBar.open : r.close;
+          // Compute candidate entry price based on execution rule.
+          // cross_prev_* = buy-stop at that level: only enters if next day's range reaches it.
+          let entryPrice: number;
+          if (settings.entryExecution === "next_open") {
+            entryPrice = nextBar.open;
+          } else if (settings.entryExecution === "this_close") {
+            entryPrice = r.close;
+          } else if (settings.entryExecution === "cross_prev_high") {
+            entryPrice = nextBar.high >= r.high ? r.high : 0;
+          } else if (settings.entryExecution === "cross_prev_close") {
+            entryPrice = nextBar.high >= r.close ? r.close : 0;
+          } else if (settings.entryExecution === "cross_prev_low") {
+            entryPrice = nextBar.low <= r.low ? r.low : 0;
+          } else {
+            entryPrice = nextBar.open;
+          }
           if (!entryPrice || entryPrice <= 0) continue;
           openPositions.set(r.symbol, { entryDate: nextBar.date, entryPrice, dateIdx: di + 1 });
         }
@@ -1301,11 +1316,14 @@ export default function StrategiesBacktest() {
 
               <div className="space-y-1">
                 <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Entry At</label>
-                <Select value={settings.entryExecution} onValueChange={(v) => setSettings(s => ({ ...s, entryExecution: v as "next_open" | "this_close" }))}>
-                  <SelectTrigger className="h-8 bg-input text-xs w-full"><SelectValue /></SelectTrigger>
+                <Select value={settings.entryExecution} onValueChange={(v) => setSettings(s => ({ ...s, entryExecution: v as StrategySettings["entryExecution"] }))}>
+                  <SelectTrigger className="h-7 bg-input text-xs w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="next_open">Next Day Open</SelectItem>
                     <SelectItem value="this_close">Signal Day Close</SelectItem>
+                    <SelectItem value="cross_prev_high">Next Day Cross Prev High</SelectItem>
+                    <SelectItem value="cross_prev_close">Next Day Cross Prev Close</SelectItem>
+                    <SelectItem value="cross_prev_low">Next Day Cross Prev Low</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
