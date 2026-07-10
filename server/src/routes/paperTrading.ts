@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { db } from "../db.js";
+import { getLiveQuotes } from "../services/marketDataService.js";
 
 const router = Router();
 
@@ -53,7 +54,7 @@ interface PaperTradeRow {
   created_at: string;
 }
 
-function computeAccountStats(accountId: string) {
+async function computeAccountStats(accountId: string) {
   const positions = db
     .prepare("SELECT * FROM paper_positions WHERE account_id = ? AND status = 'open'")
     .all(accountId) as unknown as PaperPositionRow[];
@@ -61,18 +62,38 @@ function computeAccountStats(accountId: string) {
   const trades = db
     .prepare("SELECT COALESCE(SUM(realized_pnl), 0) as total FROM paper_trades WHERE account_id = ?")
     .get(accountId) as unknown as { total: number };
-  return { invested, realizedPnl: trades.total, openPositions: positions.length };
+
+  let totalUnrealizedPnl = 0;
+  if (positions.length > 0) {
+    const symbols = [...new Set(positions.map((p) => p.symbol))];
+    try {
+      const quotes = await getLiveQuotes(symbols);
+      const quoteMap = new Map(quotes.map((q) => [q.symbol, q.ltp]));
+      for (const p of positions) {
+        const ltp = quoteMap.get(p.symbol);
+        if (ltp != null) {
+          totalUnrealizedPnl += p.side === "long"
+            ? (ltp - p.entry_price) * p.qty * p.lot_size
+            : (p.entry_price - ltp) * p.qty * p.lot_size;
+        }
+      }
+    } catch {
+      // quotes unavailable — leave totalUnrealizedPnl as 0
+    }
+  }
+
+  return { invested, realizedPnl: trades.total, openPositions: positions.length, totalUnrealizedPnl };
 }
 
 // ── Accounts ─────────────────────────────────────────────────────────────────
 
-router.get("/accounts", (_req: Request, res: Response) => {
+router.get("/accounts", async (_req: Request, res: Response) => {
   const rows = db.prepare("SELECT * FROM paper_accounts ORDER BY created_at ASC").all() as unknown as PaperAccountRow[];
-  const withStats = rows.map((a) => ({ ...a, ...computeAccountStats(a.id) }));
+  const withStats = await Promise.all(rows.map(async (a) => ({ ...a, ...(await computeAccountStats(a.id)) })));
   res.json(withStats);
 });
 
-router.post("/accounts", (req: Request, res: Response) => {
+router.post("/accounts", async (req: Request, res: Response) => {
   const { name, starting_balance } = req.body as { name?: string; starting_balance?: number };
   if (!name?.trim() || !starting_balance || starting_balance <= 0) {
     res.status(400).json({ error: "name and starting_balance are required" });
@@ -83,10 +104,10 @@ router.post("/accounts", (req: Request, res: Response) => {
   db.prepare(
     "INSERT INTO paper_accounts (id, name, starting_balance, cash_balance, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
   ).run(id, name.trim(), Number(starting_balance), Number(starting_balance), now, now);
-  res.status(201).json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(id) as unknown as PaperAccountRow), ...computeAccountStats(id) });
+  res.status(201).json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(id) as unknown as PaperAccountRow), ...(await computeAccountStats(id)) });
 });
 
-router.put("/accounts/:id", (req: Request, res: Response) => {
+router.put("/accounts/:id", async (req: Request, res: Response) => {
   const existing = db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow | undefined;
   if (!existing) { res.status(404).json({ error: "Not found" }); return; }
   const { name, add_funds } = req.body as { name?: string; add_funds?: number };
@@ -96,7 +117,7 @@ router.put("/accounts/:id", (req: Request, res: Response) => {
   db.prepare(
     "UPDATE paper_accounts SET name = ?, starting_balance = ?, cash_balance = ?, updated_at = ? WHERE id = ?"
   ).run(name?.trim() || existing.name, newStarting, newBalance, now, req.params.id);
-  res.json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow), ...computeAccountStats(req.params.id) });
+  res.json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow), ...(await computeAccountStats(req.params.id)) });
 });
 
 router.delete("/accounts/:id", (req: Request, res: Response) => {
@@ -105,7 +126,7 @@ router.delete("/accounts/:id", (req: Request, res: Response) => {
   res.status(204).send();
 });
 
-router.post("/accounts/:id/reset", (req: Request, res: Response) => {
+router.post("/accounts/:id/reset", async (req: Request, res: Response) => {
   const existing = db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow | undefined;
   if (!existing) { res.status(404).json({ error: "Not found" }); return; }
   const now = new Date().toISOString();
@@ -119,16 +140,42 @@ router.post("/accounts/:id/reset", (req: Request, res: Response) => {
     db.exec("ROLLBACK");
     throw err;
   }
-  res.json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow), ...computeAccountStats(req.params.id) });
+  res.json({ ...(db.prepare("SELECT * FROM paper_accounts WHERE id = ?").get(req.params.id) as unknown as PaperAccountRow), ...(await computeAccountStats(req.params.id)) });
 });
 
 // ── Positions ────────────────────────────────────────────────────────────────
 
-router.get("/accounts/:id/positions", (req: Request, res: Response) => {
+router.get("/accounts/:id/positions", async (req: Request, res: Response) => {
   const rows = db
     .prepare("SELECT * FROM paper_positions WHERE account_id = ? AND status = 'open' ORDER BY created_at DESC")
     .all(req.params.id) as unknown as PaperPositionRow[];
-  res.json(rows);
+
+  if (rows.length === 0) {
+    res.json([]);
+    return;
+  }
+
+  // Fetch live quotes for all symbols in one batch call
+  const symbols = [...new Set(rows.map((p) => p.symbol))];
+  let quoteMap = new Map<string, number>();
+  try {
+    const quotes = await getLiveQuotes(symbols);
+    quoteMap = new Map(quotes.map((q) => [q.symbol, q.ltp]));
+  } catch {
+    // broker not connected or quote fetch failed — return null prices rather than failing the whole request
+  }
+
+  const enriched = rows.map((p) => {
+    const current_price = quoteMap.get(p.symbol) ?? null;
+    const unrealized_pnl = current_price != null
+      ? p.side === "long"
+        ? (current_price - p.entry_price) * p.qty * p.lot_size
+        : (p.entry_price - current_price) * p.qty * p.lot_size
+      : null;
+    return { ...p, current_price, unrealized_pnl };
+  });
+
+  res.json(enriched);
 });
 
 router.post("/accounts/:id/positions", (req: Request, res: Response) => {
