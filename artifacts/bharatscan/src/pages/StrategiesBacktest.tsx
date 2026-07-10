@@ -212,6 +212,9 @@ function runStrategyBacktest(
           if (settings.maxPositions > 0 && openPositions.size >= settings.maxPositions) break;
           const h = symMap.get(r.symbol);
           if (!h) continue;
+          const sigBarIdx = findBarIdx(h, date);
+          if (sigBarIdx < 0) continue;
+          const sigBar = h.bars[sigBarIdx];
           const nextDate = tradingDates[di + 1];
           const nextBarIdx = findBarIdx(h, nextDate);
           if (nextBarIdx < 0) continue;
@@ -219,23 +222,24 @@ function runStrategyBacktest(
           // Compute candidate entry price based on execution rule.
           // cross_above_* = next day's high must reach/exceed the ref level → enter at ref (buy-stop breakout).
           // cross_below_* = next day's low must reach/breach the ref level → enter at ref (sell-stop breakdown).
+          // sigBar is the actual signal-day bar from history (has .high/.low); r.close comes from ScanResult directly.
           let entryPrice: number;
           if (settings.entryExecution === "next_open") {
             entryPrice = nextBar.open;
           } else if (settings.entryExecution === "this_close") {
             entryPrice = r.close;
           } else if (settings.entryExecution === "cross_above_prev_high") {
-            entryPrice = nextBar.high >= r.high ? r.high : 0;
+            entryPrice = nextBar.high >= sigBar.high ? sigBar.high : 0;
           } else if (settings.entryExecution === "cross_above_prev_close") {
             entryPrice = nextBar.high >= r.close ? r.close : 0;
           } else if (settings.entryExecution === "cross_above_prev_low") {
-            entryPrice = nextBar.high >= r.low ? r.low : 0;
+            entryPrice = nextBar.high >= sigBar.low ? sigBar.low : 0;
           } else if (settings.entryExecution === "cross_below_prev_high") {
-            entryPrice = nextBar.low <= r.high ? r.high : 0;
+            entryPrice = nextBar.low <= sigBar.high ? sigBar.high : 0;
           } else if (settings.entryExecution === "cross_below_prev_close") {
             entryPrice = nextBar.low <= r.close ? r.close : 0;
           } else if (settings.entryExecution === "cross_below_prev_low") {
-            entryPrice = nextBar.low <= r.low ? r.low : 0;
+            entryPrice = nextBar.low <= sigBar.low ? sigBar.low : 0;
           } else {
             entryPrice = nextBar.open;
           }

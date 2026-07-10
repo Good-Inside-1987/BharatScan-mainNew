@@ -1,0 +1,65 @@
+# Prompt 17 — Fix broken breakout/breakdown entry rules in StrategiesBacktest.tsx
+
+Paste this into Replit's AI agent as-is.
+
+---
+
+There is a TypeScript compile error in `artifacts/bharatscan/src/pages/StrategiesBacktest.tsx` that currently breaks the production build (`pnpm run build` runs `typecheck` first, so this blocks deploys).
+
+**Confirm the bug first:** run `pnpm --filter @workspace/bharatscan run typecheck` and you should see 8 errors like:
+
+```
+src/pages/StrategiesBacktest.tsx(228,44): error TS2339: Property 'high' does not exist on type 'ScanResult'.
+src/pages/StrategiesBacktest.tsx(232,44): error TS2339: Property 'low' does not exist on type 'ScanResult'.
+```
+
+**Root cause:** In the entry-price calculation for the new breakout/breakdown execution rules (`cross_above_prev_high`, `cross_above_prev_close`, `cross_above_prev_low`, `cross_below_prev_high`, `cross_below_prev_close`, `cross_below_prev_low`), the code reads `r.high` and `r.low`, where `r` is a `ScanResult` returned by `runScan()`. `ScanResult` (defined in `src/lib/screener.ts`) only has `symbol`, `close`, `changePct`, `volume`, `date`, `weeklyBars`, `dailyBars` — it never had `high`/`low`. This isn't just a type error: even if suppressed, `r.high`/`r.low` would be `undefined` at runtime, so every cross-above/cross-below comparison would silently evaluate to `false` and those entry rules would never fire a trade.
+
+**The fix:** the file already solves this exact problem correctly for exits, a few lines earlier (~line 142), by looking up the actual bar from the symbol's history via `findBarIdx()` instead of trusting the scan result object. Apply the same pattern to entries.
+
+In the `// — Process entries —` block, inside the `for (const r of entryRes)` loop, right after:
+
+```ts
+          const h = symMap.get(r.symbol);
+          if (!h) continue;
+```
+
+add:
+
+```ts
+          const sigBarIdx = findBarIdx(h, date);
+          if (sigBarIdx < 0) continue;
+          const sigBar = h.bars[sigBarIdx];
+```
+
+Then in the `entryPrice` if/else chain, replace every `r.high` with `sigBar.high` and every `r.low` with `sigBar.low`. Leave `r.close` exactly as it is — that field genuinely exists on `ScanResult` and already compiles correctly. The corrected block should read:
+
+```ts
+          let entryPrice: number;
+          if (settings.entryExecution === "next_open") {
+            entryPrice = nextBar.open;
+          } else if (settings.entryExecution === "this_close") {
+            entryPrice = r.close;
+          } else if (settings.entryExecution === "cross_above_prev_high") {
+            entryPrice = nextBar.high >= sigBar.high ? sigBar.high : 0;
+          } else if (settings.entryExecution === "cross_above_prev_close") {
+            entryPrice = nextBar.high >= r.close ? r.close : 0;
+          } else if (settings.entryExecution === "cross_above_prev_low") {
+            entryPrice = nextBar.high >= sigBar.low ? sigBar.low : 0;
+          } else if (settings.entryExecution === "cross_below_prev_high") {
+            entryPrice = nextBar.low <= sigBar.high ? sigBar.high : 0;
+          } else if (settings.entryExecution === "cross_below_prev_close") {
+            entryPrice = nextBar.low <= r.close ? r.close : 0;
+          } else if (settings.entryExecution === "cross_below_prev_low") {
+            entryPrice = nextBar.low <= sigBar.low ? sigBar.low : 0;
+          } else {
+            entryPrice = nextBar.open;
+          }
+```
+
+**Do not** change anything else in this file — the exits logic, the UI/JSX below, and every other execution rule already work correctly. This is a scoped, single-block fix.
+
+**Verify when done:**
+1. Run `pnpm --filter @workspace/bharatscan run typecheck` — must return 0 errors.
+2. Run `pnpm run build` from the project root — must complete without errors.
+3. In the app, open Strategies/Backtest, set Direction to Short, confirm the entry-execution dropdown auto-flips `cross_above_*` to `cross_below_*` (existing behavior — should be unaffected), pick a `cross_above_prev_high` or `cross_below_prev_low` rule, run a backtest, and confirm trades actually appear in the results (not zero trades) — this confirms the comparison is now using real numbers instead of `undefined`.
