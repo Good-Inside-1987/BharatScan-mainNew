@@ -16,7 +16,7 @@ import {
   apiListDashboards, apiDeleteDashboard,
   apiListPortfolios, apiDeletePortfolio,
   apiListScannerDashboards, apiDeleteScannerDashboard,
-  apiGetSchedulerStatus, apiGetMarketStatus, apiGetQuoteCacheStats,
+  apiGetSchedulerStatus, apiGetMarketStatus, apiGetQuoteCacheStats, apiResetQuoteCacheStats,
   type ApiScan, type ApiSchedulerStatus, type ApiMarketStatus, type ApiQuoteCacheStats,
 } from "@/lib/api";
 import { toast } from "sonner";
@@ -206,6 +206,7 @@ export default function Settings() {
   const [quoteCacheStats, setQuoteCacheStats] = useState<ApiQuoteCacheStats | null>(null);
   const [quoteCacheLoading, setQuoteCacheLoading] = useState(false);
   const [quoteCacheHistory, setQuoteCacheHistory] = useState<{ t: number; rate: number }[]>([]);
+  const [quoteCacheResetting, setQuoteCacheResetting] = useState(false);
 
   // ── Load all settings from backend on mount ────────────────────────────────
   useEffect(() => {
@@ -393,6 +394,20 @@ export default function Settings() {
     const interval = setInterval(load, 15_000);
     return () => clearInterval(interval);
   }, [activeSection]);
+
+  const handleResetQuoteCacheStats = useCallback(async () => {
+    setQuoteCacheResetting(true);
+    try {
+      const stats = await apiResetQuoteCacheStats();
+      setQuoteCacheStats(stats);
+      setQuoteCacheHistory([]);
+      toast.success("Quote cache stats reset");
+    } catch {
+      toast.error("Failed to reset quote cache stats");
+    } finally {
+      setQuoteCacheResetting(false);
+    }
+  }, []);
 
   // ── Broker: add ───────────────────────────────────────────────────────────
   const handleAddBroker = useCallback(async () => {
@@ -1400,6 +1415,23 @@ export default function Settings() {
           {activeSection === "broker" && (
             <SectionCard title="Quote Cache Diagnostics" icon={Database}>
               <div className="py-3 space-y-3">
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[10px] gap-1 px-2"
+                    onClick={handleResetQuoteCacheStats}
+                    disabled={quoteCacheResetting}
+                  >
+                    {quoteCacheResetting ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3 w-3" />
+                    )}
+                    Reset Stats
+                  </Button>
+                </div>
+
                 {quoteCacheLoading && !quoteCacheStats && (
                   <div className="flex justify-center py-4">
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />

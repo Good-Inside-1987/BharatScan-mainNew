@@ -198,6 +198,16 @@ const quoteStats = {
   restCallsMade:        0,
 };
 
+/** Resets all live-quote cache-hit / REST-fallback counters to zero. */
+export function resetQuoteCacheStats() {
+  quoteStats.totalRequests = 0;
+  quoteStats.requestsFullyCached = 0;
+  quoteStats.requestsWithFallback = 0;
+  quoteStats.cacheHitSymbols = 0;
+  quoteStats.restFallbackSymbols = 0;
+  quoteStats.restCallsMade = 0;
+}
+
 /** Snapshot of live-quote cache-hit vs REST-fallback counters since process start. */
 export function getQuoteCacheStats() {
   const totalSymbols = quoteStats.cacheHitSymbols + quoteStats.restFallbackSymbols;

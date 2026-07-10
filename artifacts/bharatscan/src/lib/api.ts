@@ -167,6 +167,9 @@ export interface ApiQuoteCacheStats {
 export const apiGetQuoteCacheStats = () =>
   request<ApiQuoteCacheStats>("/market-data/quotes/status");
 
+export const apiResetQuoteCacheStats = () =>
+  request<ApiQuoteCacheStats>("/market-data/quotes/status/reset", { method: "POST" });
+
 export const apiGetMarketStatus = async () => {
   const res = await fetch("/api/market/status", { credentials: "include" });
   if (!res.ok) throw new Error(`API GET /market/status → ${res.status}`);
