@@ -509,16 +509,16 @@ function OptionsAnalysisTab() {
 // ── Top-level page with tabs ───────────────────────────────────────────────────
 
 export default function OptionsPage() {
-  const [pageTab, setPageTab] = useState<"chain" | "simulator" | "stock-simulator" | "analysis">("chain");
+  const [pageTab, setPageTab] = useState<"chain" | "simulator" | "stock-simulator" | "analysis">("simulator");
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
       {/* Page-level tab bar */}
       <div className="flex items-center border-b border-border bg-card px-4 shrink-0">
         {[
-          { key: "chain",           label: "Option Chain",     icon: Link2             },
           { key: "simulator",       label: "Option Simulator", icon: Sliders           },
           { key: "stock-simulator", label: "Stock Simulator",  icon: CandlestickChart  },
+          { key: "chain",           label: "Option Chain",     icon: Link2             },
           { key: "analysis",        label: "Options Analysis", icon: BarChart2          },
         ].map(({ key, label, icon: Icon }) => (
           <button
