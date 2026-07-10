@@ -841,7 +841,7 @@ function NumInput({ value, onChange, min = 0, max = 1e9, step = 1, className = "
   useEffect(() => { if (parseFloat(text) !== value) setText(String(value)); }, [value]);
   return (
     <Input type="text" inputMode="decimal" value={text}
-      className={`h-8 bg-input text-xs ${className}`}
+      className={`h-7 bg-input text-xs ${className}`}
       onChange={(e) => { setText(e.target.value); const n = parseFloat(e.target.value); if (!isNaN(n) && n >= min && n <= max) onChange(n); }}
       onBlur={() => { const n = parseFloat(text); if (isNaN(n)) { setText(String(value)); } else { const c = Math.max(min, Math.min(max, n)); setText(String(c)); onChange(c); } }}
     />
@@ -1273,7 +1273,7 @@ export default function StrategiesBacktest() {
           </button>
 
           {settingsOpen && (
-            <div className="px-4 pb-3 border-t border-border grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2 pt-3">
+            <div className="px-4 pb-2 border-t border-border grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-1.5 pt-2">
               {/* Capital / Qty */}
               <div className="space-y-1">
                 <div className="flex items-center gap-1.5">
