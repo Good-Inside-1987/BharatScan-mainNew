@@ -35,6 +35,7 @@ export interface MarketTarget {
 
 interface DataContextValue {
   histories: SymbolHistory[];
+  loadedFileNames: string[];
   loading: boolean;
   progress: LoadProgress | null;
   brokerLoading: boolean;
@@ -76,6 +77,7 @@ const DataContext = createContext<DataContextValue | null>(null);
 
 export function DataContextProvider({ children }: { children: ReactNode }) {
   const [histories, setHistories] = useState<SymbolHistory[]>([]);
+  const [loadedFileNames, setLoadedFileNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<LoadProgress | null>(null);
   const [brokerLoading, setBrokerLoading] = useState(false);
@@ -200,6 +202,7 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
       }
       const files = await readDirectoryCsvFiles(handle);
       if (!files.length) { toast.error("No CSV files found in folder"); return; }
+      setLoadedFileNames(files.map((f) => f.name));
       const hist = await loadFromFiles(files, setProgress);
       setHistories(hist);
       toast.success(`Loaded ${hist.length} symbols from ${files.length} files`);
@@ -243,6 +246,7 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
     if (!files || !files.length) return;
     setLoading(true);
     setProgress(null);
+    setLoadedFileNames(Array.from(files).map((f) => f.name));
     try {
       const hist = await loadFromFiles(Array.from(files), setProgress);
       setHistories(hist);
@@ -397,7 +401,7 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
 
   return (
     <DataContext.Provider value={{
-      histories, loading, progress, brokerLoading, brokerProgress, folderHandle, folderName,
+      histories, loadedFileNames, loading, progress, brokerLoading, brokerProgress, folderHandle, folderName,
       categories, holidays, quotes, lotSizes, optionsData, dateRange,
       supportsDirectoryPicker,
       pickFolder, refreshFolder, clearFolder,

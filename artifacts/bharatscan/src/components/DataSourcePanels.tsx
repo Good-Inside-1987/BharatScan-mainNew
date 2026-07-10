@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { FolderOpen, Upload, RefreshCw, FileSpreadsheet, Loader2, Radio } from "lucide-react";
+import { useRef, useState, useEffect } from "react";
+import { FolderOpen, Upload, RefreshCw, FileSpreadsheet, Loader2, Radio, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ function todayIso(): string {
 
 export function DataSourcePanels() {
   const {
-    histories, loading, progress, brokerLoading, brokerProgress,
+    histories, loadedFileNames, loading, progress, brokerLoading, brokerProgress,
     folderHandle, folderName, categories, optionsData,
     dateRange, supportsDirectoryPicker,
     pickFolder, refreshFolder, clearFolder,
@@ -21,10 +21,17 @@ export function DataSourcePanels() {
   } = useData();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderDirInputRef = useRef<HTMLInputElement>(null);
   const masterInputRef = useRef<HTMLInputElement>(null);
   const optionsInputRef = useRef<HTMLInputElement>(null);
 
+  // webkitdirectory is non-standard — set it imperatively to avoid TS errors
+  useEffect(() => {
+    folderDirInputRef.current?.setAttribute("webkitdirectory", "");
+  }, []);
+
   const [useBroker, setUseBroker] = useState(false);
+  const [showFiles, setShowFiles] = useState(false);
   const [brokerSymbols, setBrokerSymbols] = useState("");
   const [brokerFrom, setBrokerFrom] = useState(() => {
     const d = new Date();
@@ -140,6 +147,16 @@ export function DataSourcePanels() {
           <Button
             size="sm"
             variant="secondary"
+            onClick={() => folderDirInputRef.current?.click()}
+            disabled={loading}
+            className="h-7 px-3 text-xs"
+            title="Select a folder — works in all modern browsers. Includes files in subfolders."
+          >
+            <FolderOpen className="h-3 w-3" /> Select Folder
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={() => fileInputRef.current?.click()}
             disabled={loading}
             className="h-7 px-3 text-xs"
@@ -158,12 +175,20 @@ export function DataSourcePanels() {
             {categories.length ? ` (${categories.length})` : ""}
           </Button>
           <input
+            ref={folderDirInputRef}
+            type="file"
+            accept=".csv"
+            multiple
+            className="hidden"
+            onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}
+          />
+          <input
             ref={fileInputRef}
             type="file"
             multiple
             accept=".csv"
             className="hidden"
-            onChange={(e) => handleFiles(e.target.files)}
+            onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}
           />
           <input
             ref={masterInputRef}
@@ -173,7 +198,8 @@ export function DataSourcePanels() {
             onChange={(e) => { handleMasterUpload(e.target.files); e.target.value = ""; }}
           />
         </div>
-        {(folderName || histories.length > 0 || !supportsDirectoryPicker()) && (
+        {/* Status row: folder name + symbol/date summary */}
+        {(folderName || histories.length > 0) && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-muted-foreground">
             {folderName && (
               <span className="flex items-center gap-1.5 min-w-0">
@@ -190,10 +216,35 @@ export function DataSourcePanels() {
                 {dateRange && <span className="ml-2">{dateRange.min} → {dateRange.max}</span>}
               </span>
             )}
-            {!supportsDirectoryPicker() && (
-              <span className="text-[11px]">
-                Folder picker requires Chrome / Edge. Use "Stocks CSV" otherwise.
+          </div>
+        )}
+
+        {/* File load summary — shown after any CSV load (folder picker, webkitdirectory, or manual) */}
+        {loadedFileNames.length > 0 && !loading && (
+          <div className="mt-2 rounded-md border border-border/50 bg-muted/20 px-2.5 py-2">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-semibold text-foreground">
+                {loadedFileNames.length} {loadedFileNames.length === 1 ? "file" : "files"} loaded
               </span>
+              {dateRange && (
+                <span className="text-muted-foreground">· {dateRange.min} → {dateRange.max}</span>
+              )}
+              <button
+                onClick={() => setShowFiles((v) => !v)}
+                className="ml-auto flex items-center gap-0.5 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showFiles ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                {showFiles ? "hide" : "show"} files
+              </button>
+            </div>
+            {showFiles && (
+              <div className="mt-1.5 max-h-36 overflow-y-auto flex flex-col gap-0.5 pr-1">
+                {[...loadedFileNames].sort().map((name) => (
+                  <span key={name} className="text-[11px] font-mono text-muted-foreground leading-tight truncate">
+                    {name}
+                  </span>
+                ))}
+              </div>
             )}
           </div>
         )}
