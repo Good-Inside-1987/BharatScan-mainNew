@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { appDb } from "../db.js";
 import { getHistoricalBars, getLiveQuotes } from "../services/marketDataService.js";
 import { subscribeSymbols, unsubscribeSymbols } from "../services/liveFeedService.js";
+import { getSchedulerStatus } from "../services/scheduler.js";
 import {
   AuthenticationError,
   SessionExpiredError,
@@ -178,6 +179,10 @@ router.post("/unsubscribe", (req: Request, res: Response) => {
     console.error("[marketData] /unsubscribe error: %s", err instanceof Error ? err.message : String(err));
     res.status(503).json({ error: "Failed to unsubscribe" });
   }
+});
+
+router.get("/scheduler-status", (_req: Request, res: Response) => {
+  res.json(getSchedulerStatus());
 });
 
 export default router;

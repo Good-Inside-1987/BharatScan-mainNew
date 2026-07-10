@@ -19,7 +19,7 @@ import paperTradingRouter from "./routes/paperTrading.js";
 import { getServiceStats } from "./services/marketDataService.js";
 import brokerConnectionsRouter from "./routes/brokerConnections.js";
 import marketDataRouter from "./routes/marketData.js";
-import { startScheduler, getSchedulerStatus } from "./services/scheduler.js";
+import { startScheduler } from "./services/scheduler.js";
 
 void appDb;
 void marketDb;
@@ -134,10 +134,6 @@ app.get("/api/health", (_req, res) => {
     .prepare("SELECT value FROM app_meta WHERE key = ?")
     .get("db_version") as { value: string } | undefined;
   res.json({ status: "ok", db_version: meta?.value ?? "unknown" });
-});
-
-app.get("/api/market/scheduler-status", (_req, res) => {
-  res.json(getSchedulerStatus());
 });
 
 app.get("/api/market/status", (_req, res) => {

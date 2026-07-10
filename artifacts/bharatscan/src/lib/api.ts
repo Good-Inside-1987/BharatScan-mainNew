@@ -117,6 +117,19 @@ export const apiGetMarketQuotes = (symbols: string[]) =>
     `/market-data/quotes?symbols=${encodeURIComponent(symbols.join(","))}`
   );
 
+export interface ApiSchedulerStatus {
+  active: boolean;
+  runSchedulerInProcess: boolean;
+  timezone: string;
+  jobs: {
+    liveOpen: { expression: string; nextRun: string | null };
+    liveClose: { expression: string; nextRun: string | null };
+  };
+}
+
+export const apiGetSchedulerStatus = () =>
+  request<ApiSchedulerStatus>("/market-data/scheduler-status");
+
 export const apiSubscribeMarketSymbols = (symbols: string[]) =>
   request<{ ok: boolean; symbols: string[] }>("/market-data/subscribe", {
     method: "POST",

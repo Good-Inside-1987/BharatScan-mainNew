@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { User, Palette, Bell, ScanSearch, Database, FileInput, Shield, HardDrive, ChevronRight, Moon, Sun, Monitor, Check, Download, Upload, Loader2, Trash2, Plug, PlugZap, RefreshCw, LogOut, Plus, ExternalLink } from "lucide-react";
+import { User, Palette, Bell, ScanSearch, Database, FileInput, Shield, HardDrive, ChevronRight, Moon, Sun, Monitor, Check, Download, Upload, Loader2, Trash2, Plug, PlugZap, RefreshCw, LogOut, Plus, ExternalLink, Clock } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,8 @@ import {
   apiListDashboards, apiDeleteDashboard,
   apiListPortfolios, apiDeletePortfolio,
   apiListScannerDashboards, apiDeleteScannerDashboard,
-  type ApiScan,
+  apiGetSchedulerStatus,
+  type ApiScan, type ApiSchedulerStatus,
 } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -192,6 +193,10 @@ export default function Settings() {
   const [brokerTotps, setBrokerTotps] = useState<Record<string, string>>({});
   const [brokerBusy, setBrokerBusy] = useState<Record<string, boolean>>({});
 
+  // ── Live feed scheduler status ─────────────────────────────────────────────
+  const [schedulerStatus, setSchedulerStatus] = useState<ApiSchedulerStatus | null>(null);
+  const [schedulerLoading, setSchedulerLoading] = useState(false);
+
   // ── Load all settings from backend on mount ────────────────────────────────
   useEffect(() => {
     apiGetSettings().then((s) => {
@@ -330,6 +335,16 @@ export default function Settings() {
       .then(setBrokers)
       .catch(() => {})
       .finally(() => setBrokersLoading(false));
+  }, [activeSection]);
+
+  // ── Scheduler status: load when broker section becomes active ─────────────
+  useEffect(() => {
+    if (activeSection !== "broker") return;
+    setSchedulerLoading(true);
+    apiGetSchedulerStatus()
+      .then(setSchedulerStatus)
+      .catch(() => setSchedulerStatus(null))
+      .finally(() => setSchedulerLoading(false));
   }, [activeSection]);
 
   // ── Broker: add ───────────────────────────────────────────────────────────
@@ -1210,6 +1225,44 @@ export default function Settings() {
                       <Plus className="h-3 w-3" /> Add Broker
                     </Button>
                   </div>
+                )}
+              </div>
+            </SectionCard>
+          )}
+
+          {activeSection === "broker" && (
+            <SectionCard title="Live Feed Schedule" icon={Clock}>
+              <div className="py-3 space-y-2">
+                {schedulerLoading && (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+
+                {!schedulerLoading && !schedulerStatus && (
+                  <p className="text-[10px] text-muted-foreground py-2">Could not load scheduler status.</p>
+                )}
+
+                {!schedulerLoading && schedulerStatus && (
+                  <>
+                    <div className="flex items-center gap-2 pb-1">
+                      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${schedulerStatus.active ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
+                      <span className={`text-[10px] font-medium ${schedulerStatus.active ? "text-emerald-400" : "text-muted-foreground"}`}>
+                        {schedulerStatus.active ? "Scheduler active in this process" : "Not running in this process"}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
+                      <div>
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Live Feed Connect</span>
+                        {schedulerStatus.jobs.liveOpen.nextRun ? formatDate(schedulerStatus.jobs.liveOpen.nextRun) : "—"}
+                      </div>
+                      <div>
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Live Feed Disconnect</span>
+                        {schedulerStatus.jobs.liveClose.nextRun ? formatDate(schedulerStatus.jobs.liveClose.nextRun) : "—"}
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground/60 pt-1">Timezone: {schedulerStatus.timezone}</p>
+                  </>
                 )}
               </div>
             </SectionCard>
