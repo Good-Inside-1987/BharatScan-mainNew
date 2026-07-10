@@ -263,7 +263,7 @@ export default function SavedScanPage() {
                             dirFilter === "short" ? "bg-destructive/15 border-destructive/30 text-destructive-bright" :
                             "border-border text-muted-foreground hover:text-foreground"
                           }`}>
-                            {dirFilter === "all" ? "Dir" : dirFilter === "long" ? "Long" : "Short"}
+                            {dirFilter === "all" ? "All" : dirFilter === "long" ? "Long" : "Short"}
                             <ChevronDown className="h-2.5 w-2.5" />
                           </button>
                         </DropdownMenuTrigger>
