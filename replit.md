@@ -98,6 +98,7 @@ _None recorded yet_
 ## Setup status
 
 - Dependencies installed via `pnpm install`; both workflows ("Start application" on port 5000, "Backend API server" on port 3001) verified running.
+- Node.js module upgraded from `nodejs-20` to `nodejs-22` (via `.replit`) — required for `node:sqlite`, which needs Node.js v22.5+.
 - `API_KEY` and `BROKER_ENCRYPTION_KEY` are optional — the server warns but runs fine without them in dev. Set them (plus rotate for prod) if you want auth/broker-credential encryption enabled.
 
 ## Gotchas
