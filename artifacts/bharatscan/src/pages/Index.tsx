@@ -625,7 +625,7 @@ const Index = () => {
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">Series</span>
               <Select value={series} onValueChange={setSeries}>
-                <SelectTrigger className="w-16 h-7 bg-input text-xs"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-14 h-6 bg-input text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">ALL</SelectItem>
                   <SelectItem value="EQ">EQ</SelectItem>
