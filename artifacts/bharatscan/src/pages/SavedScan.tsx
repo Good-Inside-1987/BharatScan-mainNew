@@ -41,6 +41,14 @@ function parseScanConditionCount(scan_json: string): number {
   } catch { return 0; }
 }
 
+function parseScanDirection(scan_json: string): "long" | "short" | null {
+  try {
+    const parsed = JSON.parse(scan_json);
+    if (parsed.direction === "long" || parsed.direction === "short") return parsed.direction;
+    return null;
+  } catch { return null; }
+}
+
 export default function SavedScanPage() {
   const navigate = useNavigate();
   const [scans, setScans] = useState<ApiScan[]>([]);
@@ -265,6 +273,18 @@ export default function SavedScanPage() {
                           <div>
                             <div className="flex items-center gap-1.5">
                               <p className="font-semibold text-foreground">{s.name}</p>
+                              {(() => {
+                                const dir = parseScanDirection(s.scan_json);
+                                return dir ? (
+                                  <span className={`inline-flex items-center rounded px-1.5 py-px text-[9px] font-bold leading-none ${
+                                    dir === "long"
+                                      ? "bg-success/15 border border-success/30 text-success"
+                                      : "bg-destructive/15 border border-destructive/30 text-destructive-bright"
+                                  }`}>
+                                    {dir === "long" ? "Long" : "Short"}
+                                  </span>
+                                ) : null;
+                              })()}
                               {(() => {
                                 const n = parseScanConditionCount(s.scan_json);
                                 return n > 0 ? (

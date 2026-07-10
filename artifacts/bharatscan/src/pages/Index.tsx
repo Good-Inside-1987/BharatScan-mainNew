@@ -116,6 +116,7 @@ const Index = () => {
   const importScanRef = useRef<HTMLInputElement>(null);
   const templateStripRef = useRef<HTMLDivElement>(null);
   const [nameMode, setNameMode] = useState<"full" | "short">("full");
+  const [scanDirection, setScanDirection] = useState<"long" | "short">("long");
   // Tracks which saved scan (if any) is currently loaded so Save can update
   // it in place. Cleared on fresh "+" or paste, set on loadScan / Save As.
   const [loadedScanId, setLoadedScanId] = useState<string | undefined>(undefined);
@@ -421,7 +422,7 @@ const Index = () => {
     if (!name) { toast.error("Give the scan a name"); return; }
     // If a scan is loaded, update that record in place (preserving its id);
     // otherwise create a new one. Renames are allowed via the input field.
-    const saved = await saveScan({ id: loadedScanId, name, filterItems, topLogicMode, series });
+    const saved = await saveScan({ id: loadedScanId, name, filterItems, topLogicMode, series, direction: scanDirection });
     setLoadedScanId(saved.id);
     setSavedScans(await listScans());
     toast.success(loadedScanId ? `Updated "${name}"` : `Saved "${name}"`);
@@ -432,7 +433,7 @@ const Index = () => {
     const name = window.prompt("Save scan as…", suggested)?.trim();
     if (!name) return;
     // Always create a new id — the originally loaded scan is left untouched.
-    const saved = await saveScan({ name, filterItems, topLogicMode, series });
+    const saved = await saveScan({ name, filterItems, topLogicMode, series, direction: scanDirection });
     setLoadedScanId(saved.id);
     setScanName(name);
     setSavedScans(await listScans());
@@ -458,6 +459,7 @@ const Index = () => {
     setSeries(s.series);
     setScanName(s.name);
     setLoadedScanId(s.id);
+    setScanDirection(s.direction ?? "long");
     setResults(null);
     setBacktest(null);
     setBacktestSelectedDate(null);
@@ -895,6 +897,26 @@ const Index = () => {
                   <span>Stock passes</span>
                   <LogicModeSelect value={topLogicMode} onChange={setTopLogicMode} />
                   <span>of the below filters</span>
+                  {/* Long / Short purpose tag — visual only, saved with scan */}
+                  <div className="inline-flex rounded border border-border bg-input p-px ml-1">
+                    {(["long", "short"] as const).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setScanDirection(d)}
+                        className={`px-1.5 py-px text-[9px] font-semibold rounded-sm transition-colors ${
+                          scanDirection === d
+                            ? d === "long"
+                              ? "bg-success text-background"
+                              : "bg-destructive text-destructive-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        title={d === "long" ? "Buy / Long scan" : "Sell / Short scan"}
+                      >
+                        {d === "long" ? "Long" : "Short"}
+                      </button>
+                    ))}
+                  </div>
                   {loadedScanId && scanName && (
                     <span className="ml-1 text-foreground">— editing <span className="font-medium">"{scanName}"</span></span>
                   )}

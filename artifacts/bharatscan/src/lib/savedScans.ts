@@ -19,6 +19,8 @@ export interface SavedScan {
   conditions?: FilterItem[];
   candleMode?: CandleMode;
   series: string;
+  /** Visual-only tag indicating the intended trade direction for this scan */
+  direction?: "long" | "short";
   savedAt: number;
   /** API-sourced metadata */
   folder?: string | null;
@@ -90,6 +92,7 @@ export async function saveScan(
     topLogicMode: scan.topLogicMode,
     series: scan.series,
     candleMode: scan.candleMode,
+    direction: scan.direction,
   });
 
   let row: ApiScan;
