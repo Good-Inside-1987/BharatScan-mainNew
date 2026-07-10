@@ -921,7 +921,7 @@ export default function StrategiesBacktest() {
   const [settingsOpen, setSettingsOpen] = useState(true);
   const [settings, setSettings] = useState<StrategySettings>({
     capital: 50000, useQty: false, qty: 1,
-    entryExecution: "next_open",
+    entryExecution: "cross_above_prev_close",
     stopLoss: 3, target: 10, maxHoldingDays: 20, maxPositions: 0,
     brokerage: 0.03, slippage: 0.05,
   });
