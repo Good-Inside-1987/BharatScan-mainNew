@@ -399,23 +399,32 @@ function gapsFor(
 }
 
 // ── Chunk sizing ──────────────────────────────────────────────────────────────
-// Conservative per-request windows to stay inside broker API limits.
+// Windows sized to match the adapter's own real per-request limits (see
+// fyers.ts maxDaysForResolution), with a small safety margin. The adapter
+// already chunks internally up to those limits, so there's no need for
+// marketDataService to hand it smaller gaps than it can actually handle.
+
+const INTRADAY_MINUTE_RESOLUTIONS = new Set([
+  "1", "2", "3", "5", "10", "15", "20", "30", "45", "60", "120", "180", "240",
+]);
+
+function isSecondResolution(resolution: string): boolean {
+  return /S$/i.test(resolution);
+}
 
 const CHUNK_DAYS: Record<string, number> = {
-  "1D":  365,
-  "240":  90,
-  "120":  60,
-  "60":   30,
-  "30":   15,
-  "15":   10,
-  "10":    7,
-  "5":     7,
-  "3":     5,
-  "1":     3,
+  "1D": 365,
 };
 
+function chunkDaysForResolution(resolution: string): number {
+  if (resolution in CHUNK_DAYS) return CHUNK_DAYS[resolution];
+  if (isSecondResolution(resolution)) return 28;
+  if (INTRADAY_MINUTE_RESOLUTIONS.has(resolution)) return 95;
+  return 28;
+}
+
 function chunkRange(from: string, to: string, resolution: string): DateRange[] {
-  const days = CHUNK_DAYS[resolution] ?? 30;
+  const days = chunkDaysForResolution(resolution);
   const chunks: DateRange[] = [];
   let cur = new Date(from);
   const end = new Date(to);
