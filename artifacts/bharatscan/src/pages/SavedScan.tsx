@@ -200,7 +200,7 @@ export default function SavedScanPage() {
 
         {/* Table */}
         <Card className="shadow-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center justify-between">
+          <div className="px-4 py-1.5 border-b border-border bg-muted/20 flex items-center justify-between">
             <h3 className="text-xs font-bold tracking-wide text-muted-foreground uppercase">Scans</h3>
             <span className="text-[10px] text-muted-foreground">{scans.length} scan{scans.length !== 1 ? "s" : ""} saved</span>
           </div>
@@ -231,16 +231,16 @@ export default function SavedScanPage() {
               <table className="w-full text-xs">
                 <thead className="bg-muted/40 text-[9px] uppercase tracking-wide text-muted-foreground border-b border-border">
                   <tr>
-                    <th className="text-left px-3 py-1.5 w-6">
+                    <th className="text-left px-3 py-1 w-6">
                       <button type="button" onClick={() => setFavOnly(v => !v)}
                         title={favOnly ? "Show all scans" : "Show favourites only"}>
                         <Star className={`h-3.5 w-3.5 transition-colors ${favOnly ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/40 hover:text-yellow-400"}`} />
                       </button>
                     </th>
-                    <th className="text-left px-3 py-1.5">Name</th>
-                    <th className="text-left px-3 py-1.5">Modified</th>
-                    <th className="text-left px-3 py-1.5">Saved On</th>
-                    <th className="text-right px-3 py-1.5">Actions</th>
+                    <th className="text-left px-3 py-1">Name</th>
+                    <th className="text-left px-3 py-1">Modified</th>
+                    <th className="text-left px-3 py-1">Saved On</th>
+                    <th className="text-right px-3 py-1">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
