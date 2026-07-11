@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { FolderOpen, Upload, RefreshCw, FileSpreadsheet, Loader2, Radio, ChevronDown, ChevronUp } from "lucide-react";
+import { FolderOpen, Upload, RefreshCw, FileSpreadsheet, Loader2, Radio, ChevronDown, ChevronUp, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,7 @@ export function DataSourcePanels() {
   const [useBroker, setUseBroker] = useState(false);
   const [showFiles, setShowFiles] = useState(false);
   const [brokerSymbols, setBrokerSymbols] = useState("");
+  const [brokerResolution, setBrokerResolution] = useState("1D");
   const [brokerFrom, setBrokerFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -40,13 +41,30 @@ export function DataSourcePanels() {
   });
   const [brokerTo, setBrokerTo] = useState(todayIso());
 
+  const RESOLUTIONS = [
+    { value: "1D", label: "Daily"  },
+    { value: "1",  label: "1 min"  },
+    { value: "5",  label: "5 min"  },
+    { value: "15", label: "15 min" },
+  ];
+
+  function parseSymbols() {
+    return brokerSymbols.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
   function submitBrokerLoad() {
-    const symbols = brokerSymbols
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const symbols = parseSymbols();
     if (!symbols.length) { toast.error("Enter at least one symbol (comma-separated)"); return; }
-    void handleLoadFromBroker(symbols, brokerFrom, brokerTo);
+    void handleLoadFromBroker(symbols, brokerFrom, brokerTo, brokerResolution);
+  }
+
+  function submitTodayOnly() {
+    const symbols = parseSymbols();
+    if (!symbols.length) { toast.error("Enter at least one symbol (comma-separated)"); return; }
+    const today = todayIso();
+    setBrokerFrom(today);
+    setBrokerTo(today);
+    void handleLoadFromBroker(symbols, today, today, brokerResolution);
   }
 
   return (
@@ -90,6 +108,17 @@ export function DataSourcePanels() {
               disabled={brokerLoading}
               className="h-7 text-xs flex-1 min-w-[220px]"
             />
+            {/* Resolution dropdown */}
+            <select
+              value={brokerResolution}
+              onChange={(e) => setBrokerResolution(e.target.value)}
+              disabled={brokerLoading}
+              className="h-7 text-xs px-2 rounded-md border border-input bg-background text-foreground cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {RESOLUTIONS.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
             <Input
               type="date"
               value={brokerFrom}
@@ -112,6 +141,18 @@ export function DataSourcePanels() {
             >
               {brokerLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Radio className="h-3 w-3" />}
               Load
+            </Button>
+            {/* Load Today Only — fast end-of-day top-up for a symbol list */}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={submitTodayOnly}
+              disabled={brokerLoading}
+              className="h-7 px-3 text-xs"
+              title="Set From/To to today and load — ideal for a fast end-of-day top-up"
+            >
+              <CalendarDays className="h-3 w-3" />
+              Today Only
             </Button>
             {brokerProgress?.failed.length ? (
               <span className="text-[11px] text-destructive-bright w-full">

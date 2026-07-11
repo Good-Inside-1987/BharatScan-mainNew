@@ -55,7 +55,7 @@ interface DataContextValue {
   refreshFolder: () => Promise<void>;
   clearFolder: () => Promise<void>;
   handleFiles: (files: FileList | null) => Promise<void>;
-  handleLoadFromBroker: (symbols: string[], fromDate: string, toDate: string) => Promise<void>;
+  handleLoadFromBroker: (symbols: string[], fromDate: string, toDate: string, resolution?: string) => Promise<void>;
   handleMasterUpload: (files: FileList | null) => Promise<void>;
   handleOptionsUpload: (files: FileList | null) => Promise<void>;
   pickOptionsFolder: () => Promise<void>;
@@ -258,12 +258,12 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function handleLoadFromBroker(symbols: string[], fromDate: string, toDate: string) {
+  async function handleLoadFromBroker(symbols: string[], fromDate: string, toDate: string, resolution = "1D") {
     if (!symbols.length) { toast.error("Enter at least one symbol"); return; }
     setBrokerLoading(true);
     setBrokerProgress(null);
     try {
-      const hist = await loadFromBrokerApi(symbols, fromDate, toDate, setBrokerProgress);
+      const hist = await loadFromBrokerApi(symbols, fromDate, toDate, setBrokerProgress, resolution);
       if (!hist.length) {
         toast.error("No data returned — check the broker connection and symbols");
         return;
@@ -271,7 +271,8 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
       setHistories(hist);
       const failedCount = symbols.length - hist.length;
       const failedMsg = failedCount > 0 ? ` (${failedCount} failed)` : "";
-      toast.success(`Loaded ${hist.length} symbols from connected broker${failedMsg}`);
+      const resLabel = resolution === "1D" ? "" : ` · ${resolution}-min`;
+      toast.success(`Loaded ${hist.length} symbols${resLabel} from connected broker${failedMsg}`);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {

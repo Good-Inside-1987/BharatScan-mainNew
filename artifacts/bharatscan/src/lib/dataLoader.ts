@@ -141,9 +141,11 @@ function toFyersSymbol(symbol: string): string {
   return `NSE:${s}-EQ`;
 }
 
-function apiBarToBar(bar: ApiHistoryBar, prevClose: number): Bar {
+// For daily bars the date is already YYYY-MM-DD; for intraday it's a full
+// ISO timestamp that we must preserve so individual candles aren't collapsed.
+function apiBarToBar(bar: ApiHistoryBar, prevClose: number, daily: boolean): Bar {
   return {
-    date: bar.date.slice(0, 10),
+    date: daily ? bar.date.slice(0, 10) : bar.date,
     open: bar.open,
     high: bar.high,
     low: bar.low,
@@ -187,23 +189,28 @@ export async function loadFromBrokerApi(
         const res = await apiGetMarketHistory(fyersSymbol, resolution, fromDate, toDate);
 
         // Sort raw API bars chronologically FIRST so prevClose is computed
-        // against the correct preceding day, then de-dupe same-day rows
+        // against the correct preceding bar, then de-dupe duplicate keys
         // (keep last) — mirrors loadFromFiles()'s sort-then-dedupe order.
+        // Daily: dedup key = date only (YYYY-MM-DD).
+        // Intraday: dedup key = full timestamp — each candle is a distinct row.
+        const daily = resolution === "1D";
         const sortedRaw = [...res.bars].sort((a, b) => a.date.localeCompare(b.date));
         const dedupRaw: ApiHistoryBar[] = [];
         for (const b of sortedRaw) {
-          const key = b.date.slice(0, 10);
-          if (dedupRaw.length && dedupRaw[dedupRaw.length - 1].date.slice(0, 10) === key) {
-            dedupRaw[dedupRaw.length - 1] = b;
-          } else {
-            dedupRaw.push(b);
+          const key = daily ? b.date.slice(0, 10) : b.date;
+          if (dedupRaw.length) {
+            const lastKey = daily
+              ? dedupRaw[dedupRaw.length - 1].date.slice(0, 10)
+              : dedupRaw[dedupRaw.length - 1].date;
+            if (lastKey === key) { dedupRaw[dedupRaw.length - 1] = b; continue; }
           }
+          dedupRaw.push(b);
         }
 
         const bars: Bar[] = [];
         let prevClose = 0;
         for (const b of dedupRaw) {
-          bars.push(apiBarToBar(b, prevClose));
+          bars.push(apiBarToBar(b, prevClose, daily));
           prevClose = b.close;
         }
         out.push({ symbol: rawSymbol.toUpperCase(), series: "EQ", bars });
