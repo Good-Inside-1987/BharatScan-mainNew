@@ -1,0 +1,30 @@
+The database already has an "options_intraday" table in server/src/db/market-schema.ts
+(underlying, expiry, strike, option_type, timestamp, open, high, low, close, volume, oi), but
+there's currently no way to load option historical data from the connected broker — options data
+can only be loaded today via manual CSV upload (handleOptionsUpload).
+
+Add a new "Options Data Source" broker-load panel (similar in style to the existing Stocks
+broker-load panel in DataSourcePanels.tsx), with:
+
+1. An underlying dropdown (NIFTY, BANKNIFTY, FINNIFTY, SENSEX, MIDCPNIFTY — matching the indices
+   already tracked per server/src/config/environment.ts)
+2. An expiry picker (fetch available expiries the same way the existing Option Chain page does —
+   check artifacts/bharatscan/src/pages/OptionChain.tsx for how it currently gets expiry lists)
+3. A date range picker and a "1 min" resolution (this feature only needs to support 1-minute for
+   now)
+4. On submit: fetch the current spot price to determine the ATM strike, then automatically pull
+   both CE and PE historical candles for ATM ± 30 strikes if the underlying is an index, or
+   ATM ± 20 strikes if it's a stock option — matching the comment already in market-schema.ts
+   ("Index options: ATM ±30 strikes... Stock options: ATM ±20 strikes"). Reuse whatever option
+   symbol-formatting logic already exists in server/src/adapters/fyers.ts (used by
+   getOptionChain) so the constructed option symbols are correct and consistent.
+5. Save results into the options_intraday table using an upsert (ON CONFLICT DO UPDATE), same
+   pattern as the existing ohlcv_intraday upsert in marketDataService.ts.
+6. Respect the existing daily request budget system already enforced in marketDataService.ts —
+   don't bypass it.
+7. Show a progress indicator (X of Y strikes loaded) similar to the existing stock broker-load
+   panel.
+
+TEST: pick NIFTY, a near expiry, a 1-2 day date range, submit, and confirm option_intraday rows
+appear for roughly 122 contracts (61 strikes × 2 for CE/PE) without errors, and that it stays
+within the daily request budget (check the Backfill Dashboard afterward).

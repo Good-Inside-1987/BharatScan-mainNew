@@ -115,6 +115,26 @@ async function throttle<T>(fn: () => Promise<T>): Promise<T> {
   return fn();
 }
 
+/**
+ * Exported for use by sibling services (e.g. optionsDataService).
+ * Applies the same rate-limit pacing as the internal throttle function.
+ */
+export async function throttleCall<T>(fn: () => Promise<T>): Promise<T> {
+  return throttle(fn);
+}
+
+/**
+ * Exported for use by sibling services.
+ * Increments the daily counter and returns true when budget is still available.
+ */
+export { consumeBudget as checkAndConsumeBudget };
+
+/**
+ * Exported for use by sibling services.
+ * Returns the authenticated broker adapter, or null if none is available.
+ */
+export { getAuthenticatedAdapter };
+
 // ── In-memory TTL cache for getHistoricalBars results ─────────────────────────
 // Prevents redundant DB reads and broker calls when many scanner symbols
 // request overlapping ranges in quick succession (e.g. a full-universe scan).

@@ -176,6 +176,73 @@ export const apiGetMarketStatus = async () => {
   return res.json() as Promise<ApiMarketStatus>;
 };
 
+// ── Options data (broker-backed) ──────────────────────────────────────────────
+
+export const apiGetOptionExpiries = (underlying: string) =>
+  request<{ underlying: string; expiries: string[] }>(
+    `/market-data/options/expiries?underlying=${encodeURIComponent(underlying)}`
+  );
+
+export interface OptionsLoadEvent {
+  type: "progress" | "done" | "error";
+  loaded?: number;
+  total?: number;
+  current?: string;
+  failed?: string[];
+  skippedBudget?: number;
+  error?: string;
+}
+
+/**
+ * POST /api/market-data/options/load — starts an SSE stream.
+ * Returns an async generator that yields OptionsLoadEvent objects.
+ */
+export async function* apiLoadOptionsFromBroker(
+  underlying: string,
+  expiry: string,
+  from: string,
+  to: string
+): AsyncGenerator<OptionsLoadEvent> {
+  const res = await fetch("/api/market-data/options/load", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ underlying, expiry, from, to }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`API POST /market-data/options/load → ${res.status}: ${body}`);
+  }
+  if (!res.body) throw new Error("No response body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            yield JSON.parse(line.slice(6)) as OptionsLoadEvent;
+          } catch { /* skip malformed */ }
+        }
+      }
+    }
+    // Drain the buffer
+    if (buf.startsWith("data: ")) {
+      try { yield JSON.parse(buf.slice(6)) as OptionsLoadEvent; } catch { /* skip */ }
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+}
+
 // ── Symbol Master ─────────────────────────────────────────────────────────────
 
 export interface ApiSymbol {

@@ -105,6 +105,33 @@ _None recorded yet_
 - Running Electron locally in this container requires extra system libs (glib, nss, gtk3, dbus, libgbm, etc., installed via Nix) since Electron ships its own Chromium; there is no display server here so the window itself can't render, but the spawned Express backend (and thus `node:sqlite`) starts and serves correctly.
 - `API_KEY` and `BROKER_ENCRYPTION_KEY` are optional — the server warns but runs fine without them in dev. Set them (plus rotate for prod) if you want auth/broker-credential encryption enabled.
 
+## Options broker-load feature
+
+The Options Data Source card (Settings → API / Data Source) now has a **"Load from connected broker"** toggle that:
+
+1. **Underlying dropdown** — NIFTY, BANKNIFTY, FINNIFTY, SENSEX, MIDCPNIFTY
+2. **Expiry picker** — fetches available expiries from the broker via `GET /api/market-data/options/expiries?underlying=NIFTY`
+3. **Date range + Load** — fetches 1-min candles for ATM ± 30 strikes (index) or ATM ± 20 strikes (stock), both CE and PE, saving into `options_intraday` via upsert
+4. **Progress indicator** — shows X/Y contracts as they load
+5. **Budget-aware** — respects `config.backfillDailyRequestBudget` (same as stock backfill)
+
+New files:
+- `server/src/services/optionsDataService.ts` — orchestrates the load
+- New routes in `server/src/routes/marketData.ts`: `GET /options/expiries`, `POST /options/load` (SSE stream)
+- New API helpers in `artifacts/bharatscan/src/lib/api.ts`: `apiGetOptionExpiries`, `apiLoadOptionsFromBroker` (async generator)
+- `artifacts/bharatscan/src/components/DataSourcePanels.tsx` — Options panel extended with broker-load mode
+
+Adapter changes:
+- `Bar` type gained optional `oi?: number` (Fyers returns OI as 7th candle value for options/futures)
+- `OptionChainData.strikes` now includes `ceSymbol?` / `peSymbol?` (full Fyers trading symbols extracted from chain rows)
+- `FyersAdapter.getOptionChain` now captures `expiryData` (available expiries) and `underlying_ltp` (spot price) from the response
+- `FyersAdapter.getOptionExpiries(underlying)` added — calls chain API without timestamp to get expiry list
+- `AngelAdapter.getOptionExpiries` stub added (throws — not yet implemented)
+
+Underlying → Fyers symbol mapping (in optionsDataService.ts):
+- NIFTY → NSE:NIFTY50-INDEX · BANKNIFTY → NSE:NIFTYBANK-INDEX · FINNIFTY → NSE:FINNIFTY-INDEX
+- SENSEX → BSE:SENSEX-INDEX · MIDCPNIFTY → NSE:MIDCPNIFTY-INDEX
+
 ## Gotchas
 
 - `PORT` and `BASE_PATH` default to `5173` and `/` if not set (safe for local dev)

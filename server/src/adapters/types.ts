@@ -11,6 +11,7 @@ export interface Bar {
   low: number;
   close: number;
   volume: number;
+  oi?: number;
 }
 
 export interface Quote {
@@ -27,8 +28,16 @@ export interface Quote {
 export interface OptionChainData {
   underlying: string;
   expiry: string;
+  /** Available expiry dates (ISO YYYY-MM-DD) returned alongside the chain. */
+  expiries?: string[];
+  /** Spot price of the underlying returned alongside the chain. */
+  spotPrice?: number;
   strikes: Array<{
     strike: number;
+    /** Full broker trading symbol for the CE leg (e.g. NSE:NIFTY25JAN2316500CE). */
+    ceSymbol?: string | null;
+    /** Full broker trading symbol for the PE leg. */
+    peSymbol?: string | null;
     ce: Record<string, unknown> | null;
     pe: Record<string, unknown> | null;
   }>;

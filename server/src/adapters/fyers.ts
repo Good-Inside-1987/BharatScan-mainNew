@@ -170,15 +170,19 @@ export class FyersAdapter implements BrokerAdapter {
       }
 
       for (const candle of data.candles ?? []) {
-        const [timestamp, open, high, low, close, volume] = candle;
-        bars.push({
+        // Fyers candles: [timestamp, open, high, low, close, volume] (6 values)
+        // For options/futures, may also include OI as a 7th value.
+        const [timestamp, open, high, low, close, volume, oi] = candle;
+        const bar: Bar = {
           date: new Date(timestamp * 1000).toISOString(),
           open,
           high,
           low,
           close,
           volume,
-        });
+        };
+        if (oi !== undefined) bar.oi = oi;
+        bars.push(bar);
       }
     }
 
@@ -234,7 +238,7 @@ export class FyersAdapter implements BrokerAdapter {
   ): Promise<OptionChainData> {
     const url = new URL(`${FYERS_DATA_BASE}/options-chain-v3`);
     url.searchParams.set("symbol", underlying);
-    url.searchParams.set("timestamp", expiry);
+    if (expiry) url.searchParams.set("timestamp", expiry);
 
     const response = await fetch(url.toString(), {
       headers: { Authorization: this.authHeader() },
@@ -245,6 +249,8 @@ export class FyersAdapter implements BrokerAdapter {
       message?: string;
       data?: {
         optionsChain?: Array<Record<string, unknown>>;
+        expiryData?: Array<string | number>;
+        underlying_ltp?: number;
       };
     };
 
@@ -252,9 +258,23 @@ export class FyersAdapter implements BrokerAdapter {
       throw new Error(data.message ?? "Fyers option chain request failed");
     }
 
+    // Extract available expiry dates from the response meta
+    const expiries: string[] = (data.data?.expiryData ?? []).map((ts) => {
+      const ms = typeof ts === "number" ? ts * 1000 : Number(ts) * 1000;
+      return new Date(ms).toISOString().slice(0, 10);
+    }).filter(Boolean).sort();
+
+    const spotPrice = data.data?.underlying_ltp;
+
     const strikesByStrike = new Map<
       number,
-      { strike: number; ce: Record<string, unknown> | null; pe: Record<string, unknown> | null }
+      {
+        strike: number;
+        ceSymbol: string | null;
+        peSymbol: string | null;
+        ce: Record<string, unknown> | null;
+        pe: Record<string, unknown> | null;
+      }
     >();
 
     for (const row of data.data?.optionsChain ?? []) {
@@ -262,20 +282,33 @@ export class FyersAdapter implements BrokerAdapter {
       const optionType = row.option_type as string | undefined;
       if (strike === undefined || !optionType) continue;
 
-      const entry =
-        strikesByStrike.get(strike) ?? { strike, ce: null, pe: null };
-      if (optionType === "CE") entry.ce = row;
-      else if (optionType === "PE") entry.pe = row;
+      const sym = (row.symbol ?? row.sym_details ?? null) as string | null;
+
+      const entry = strikesByStrike.get(strike) ?? {
+        strike, ceSymbol: null, peSymbol: null, ce: null, pe: null,
+      };
+      if (optionType === "CE") { entry.ce = row; entry.ceSymbol = sym; }
+      else if (optionType === "PE") { entry.pe = row; entry.peSymbol = sym; }
       strikesByStrike.set(strike, entry);
     }
 
     return {
       underlying,
       expiry,
-      strikes: Array.from(strikesByStrike.values()).sort(
-        (a, b) => a.strike - b.strike
-      ),
+      expiries,
+      spotPrice,
+      strikes: Array.from(strikesByStrike.values()).sort((a, b) => a.strike - b.strike),
     };
+  }
+
+  /**
+   * Return available expiry dates for an underlying index/stock.
+   * Calls the option chain API without a specific expiry so Fyers returns
+   * the expiryData list in the response.
+   */
+  async getOptionExpiries(underlying: string): Promise<string[]> {
+    const chain = await this.getOptionChain(underlying, "");
+    return chain.expiries ?? [];
   }
 
   async refreshSession(_refreshToken: string): Promise<string> {

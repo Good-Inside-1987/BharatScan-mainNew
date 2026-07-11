@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { appDb } from "../db.js";
 import { getHistoricalBars, getLiveQuotes, getQuoteCacheStats, resetQuoteCacheStats } from "../services/marketDataService.js";
+import { getOptionExpiriesFromBroker, loadOptionsFromBroker } from "../services/optionsDataService.js";
 import { subscribeSymbols, unsubscribeSymbols } from "../services/liveFeedService.js";
 import { getSchedulerStatus } from "../services/scheduler.js";
 import {
@@ -179,6 +180,116 @@ router.post("/unsubscribe", (req: Request, res: Response) => {
     console.error("[marketData] /unsubscribe error: %s", err instanceof Error ? err.message : String(err));
     res.status(503).json({ error: "Failed to unsubscribe" });
   }
+});
+
+// ── Options data load routes ──────────────────────────────────────────────────
+
+/**
+ * GET /options/expiries?underlying=NIFTY
+ * Returns available expiry dates from the connected broker for the given underlying.
+ */
+router.get("/options/expiries", async (req: Request, res: Response) => {
+  const { underlying } = req.query as Record<string, string | undefined>;
+  if (!underlying || typeof underlying !== "string" || !underlying.trim()) {
+    res.status(400).json({ error: "underlying is required" });
+    return;
+  }
+  if (!hasConnectedBroker()) {
+    res.status(503).json({ error: "No broker connected" });
+    return;
+  }
+  try {
+    const expiries = await getOptionExpiriesFromBroker(underlying.trim().toUpperCase());
+    res.json({ underlying: underlying.trim().toUpperCase(), expiries });
+  } catch (err) {
+    if (handleBrokerError(err, res, "/options/expiries")) return;
+    console.error("[marketData] /options/expiries error:", err instanceof Error ? err.message : err);
+    res.status(503).json({ error: err instanceof Error ? err.message : "Failed to fetch expiries" });
+  }
+});
+
+/**
+ * POST /options/load
+ * Body: { underlying, expiry, from, to }
+ * Streams SSE progress: data: {"type":"start"|"progress"|"done", ...}
+ *
+ * Fetches 1-min intraday candles for ATM ± N strikes (CE + PE) and
+ * upserts them into options_intraday. Respects daily request budget.
+ */
+router.post("/options/load", async (req: Request, res: Response) => {
+  const { underlying, expiry, from, to } = req.body as {
+    underlying?: string;
+    expiry?: string;
+    from?: string;
+    to?: string;
+  };
+
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+  if (!underlying || typeof underlying !== "string" || !underlying.trim()) {
+    res.status(400).json({ error: "underlying is required" });
+    return;
+  }
+  if (!expiry || !DATE_RE.test(expiry)) {
+    res.status(400).json({ error: "expiry must be a YYYY-MM-DD date" });
+    return;
+  }
+  if (!from || !DATE_RE.test(from)) {
+    res.status(400).json({ error: "from must be a YYYY-MM-DD date" });
+    return;
+  }
+  if (!to || !DATE_RE.test(to)) {
+    res.status(400).json({ error: "to must be a YYYY-MM-DD date" });
+    return;
+  }
+  if (from > to) {
+    res.status(400).json({ error: "from must not be after to" });
+    return;
+  }
+  if (!hasConnectedBroker()) {
+    res.status(503).json({ error: "No broker connected" });
+    return;
+  }
+
+  // Set up SSE
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  const send = (data: Record<string, unknown>) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  try {
+    const result = await loadOptionsFromBroker(
+      { underlying: underlying.trim().toUpperCase(), expiry, from, to },
+      (progress) => {
+        send({
+          type: "progress",
+          loaded: progress.loaded,
+          total: progress.total,
+          current: progress.current,
+          failed: progress.failed,
+        });
+      }
+    );
+    send({
+      type: "done",
+      loaded: result.loaded,
+      skippedBudget: result.skippedBudget,
+      failed: result.failed,
+    });
+  } catch (err) {
+    console.error("[marketData] /options/load error:", err instanceof Error ? err.message : err);
+    send({
+      type: "error",
+      error: err instanceof Error ? err.message : "Failed to load options data",
+    });
+  }
+
+  res.end();
 });
 
 router.get("/scheduler-status", (_req: Request, res: Response) => {

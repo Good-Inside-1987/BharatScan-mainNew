@@ -299,6 +299,10 @@ export class AngelAdapter implements BrokerAdapter {
     throw new Error("AngelAdapter.getOptionChain is not implemented");
   }
 
+  async getOptionExpiries(_underlying: string): Promise<string[]> {
+    throw new Error("AngelAdapter.getOptionExpiries is not implemented");
+  }
+
   async refreshSession(_refreshToken: string): Promise<string> {
     throw new Error("AngelAdapter.refreshSession is not implemented");
   }
