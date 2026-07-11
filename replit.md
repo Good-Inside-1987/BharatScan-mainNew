@@ -8,6 +8,8 @@ A Chartink-inspired stock screener and backtesting tool for Indian markets — u
 - Start **"Start application"** workflow — Vite frontend on port 5000
 - Start **"Backend API server"** workflow — Express API on port 3001
 - For local dev: `pnpm dev` — starts both frontend + backend via concurrently
+- Requires Node.js 22+ (uses `node:sqlite`, stable since Node 22.5). The Replit environment module is set to `nodejs-22`.
+- Optional: set `BROKER_ENCRYPTION_KEY` secret to enable broker credential encryption (live broker integration). Not required for core scanning/backtesting/paper trading features — the server runs fine without it and just logs a warning.
 
 ## Stack
 
