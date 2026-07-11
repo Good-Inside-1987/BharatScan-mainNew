@@ -5,3 +5,4 @@
 - [Backfill progress intervals](backfill-progress-intervals.md) — backfill_progress uses a covered_ranges JSON column (array of {from,to}) not a min/max window; holes stay detectable after partial failures.
 - [Broker history loader parity](broker-history-loader.md) — sort broker/API bars chronologically before computing prevClose, then dedupe same-day, matching CSV loader order.
 - [node:sqlite Node version requirement](node-sqlite-node-version.md) — imported repls default to nodejs-20 module; node:sqlite throws ERR_UNKNOWN_BUILTIN_MODULE until upgraded to nodejs-22+.
+- [Fyers option symbol parsing limitation](fyers-option-symbol-parsing.md) — weekly-expiry option symbols are digit-fused and unsafe to split; skip+log rather than misfile into equity table.

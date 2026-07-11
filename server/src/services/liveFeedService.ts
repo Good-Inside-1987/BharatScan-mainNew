@@ -31,7 +31,7 @@
  */
 
 import WebSocket from "ws";
-import { appDb } from "../db.js";
+import { appDb, marketDb } from "../db.js";
 import { decrypt } from "../lib/encryption.js";
 import type { Quote } from "../adapters/types.js";
 
@@ -40,6 +40,12 @@ const MAX_SUBSCRIBED_SYMBOLS = 200;
 
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 60_000;
+
+// How often we sweep in-progress candles for ones whose minute has elapsed
+// without a fresh tick arriving to trigger the boundary naturally (e.g. a
+// thinly-traded symbol going quiet near the close). Kept well under a
+// minute so a stalled symbol's candle is still persisted promptly.
+const CANDLE_FLUSH_INTERVAL_MS = 15_000;
 
 // ── Session lookup ──────────────────────────────────────────────────────────
 
@@ -107,6 +113,237 @@ export function getLiveQuotes(symbols: string[]): Quote[] {
   }
   return results;
 }
+
+// ── Intraday candle persistence ─────────────────────────────────────────────
+//
+// The quote cache above is transient (lost on restart/disconnect). To keep a
+// durable record of what the live feed saw, every tick also feeds an
+// in-memory per-symbol 1-minute OHLCV aggregator. Completed minutes are
+// upserted into ohlcv_intraday (equities/indices) or options_intraday
+// (option contracts) using the same ON CONFLICT upsert pattern as
+// marketDataService.ts / optionsDataService.ts. We deliberately never write
+// on every tick — only once a minute boundary is confirmed complete, either
+// because a tick arrived in the next minute or because the periodic flush
+// timer noticed the minute has elapsed with no further ticks.
+
+interface CandleState {
+  minuteStartMs: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  /** Cumulative day volume as reported by the first tick of this minute. */
+  volumeAtOpen: number;
+  /** Most recent cumulative day volume seen for this minute. */
+  lastCumulativeVolume: number;
+}
+
+const candleState = new Map<string, CandleState>();
+
+interface OptionSymbolMeta {
+  underlying: string;
+  expiry: string;
+  strike: number;
+  optionType: "CE" | "PE";
+}
+
+/**
+ * Fyers option trading symbols (e.g. "NIFTY24DEC25000CE") pack underlying +
+ * expiry + strike + option type into one token with no delimiters, and the
+ * expiry portion uses a compact per-exchange encoding (monthly vs. weekly
+ * codes look different and overlap in digit-only form). We can reliably
+ * split off the option type and, in the common monthly-expiry case, the
+ * strike and underlying — but we deliberately refuse to guess when the
+ * remaining "expiry" fragment isn't a plausible-looking date code, rather
+ * than upserting a candle under a wrong/garbled contract identity.
+ */
+function parseOptionSymbol(rawSymbol: string): OptionSymbolMeta | null {
+  const bare = rawSymbol.includes(":") ? rawSymbol.split(":").slice(1).join(":") : rawSymbol;
+
+  // Equity/index symbols always carry a "-EQ"/"-INDEX"/"-BE" style suffix on
+  // Fyers; option symbols never contain a hyphen. This is the cheapest and
+  // most reliable equity/option discriminator available without a symbol
+  // master lookup.
+  if (bare.includes("-")) return null;
+
+  const optionType: "CE" | "PE" | null = bare.endsWith("CE") ? "CE" : bare.endsWith("PE") ? "PE" : null;
+  if (!optionType) return null;
+
+  const withoutType = bare.slice(0, -2);
+  const strikeMatch = /(\d+(?:\.\d+)?)$/.exec(withoutType);
+  if (!strikeMatch) return null;
+  const strikeStr = strikeMatch[1];
+
+  // NSE/BSE strikes are realistically 2-6 digits. A longer trailing digit
+  // run means the expiry's day-of-month digits fused with the strike
+  // (typical of compact weekly codes like "24D2825000CE") and we can't
+  // safely tell where one ends and the other begins — skip rather than
+  // risk storing the wrong strike/expiry.
+  if (strikeStr.length > 6) return null;
+  const strike = Number(strikeStr);
+
+  const rest = withoutType.slice(0, withoutType.length - strikeStr.length);
+  const underlyingMatch = /^([A-Z&]+)/.exec(rest);
+  if (!underlyingMatch) return null;
+  const underlying = underlyingMatch[1];
+  const expiry = rest.slice(underlying.length);
+  if (!expiry) return null;
+
+  return { underlying, expiry, strike, optionType };
+}
+
+function floorToMinuteMs(iso: string): number {
+  const ms = new Date(iso).getTime();
+  return Math.floor(ms / 60_000) * 60_000;
+}
+
+function upsertOhlcvCandle(symbol: string, state: CandleState): void {
+  const volume = Math.max(0, state.lastCumulativeVolume - state.volumeAtOpen);
+  const timestamp = new Date(state.minuteStartMs).toISOString();
+  try {
+    marketDb
+      .prepare(
+        `INSERT INTO ohlcv_intraday (symbol, timestamp, open, high, low, close, volume)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(symbol, timestamp) DO UPDATE SET
+           open = excluded.open, high = excluded.high,
+           low  = excluded.low,  close = excluded.close,
+           volume = excluded.volume`
+      )
+      .run(symbol, timestamp, state.open, state.high, state.low, state.close, volume);
+  } catch (err) {
+    console.warn(
+      "[liveFeedService] Failed to persist candle for %s @ %s: %s",
+      symbol, timestamp, err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+function upsertOptionsCandle(meta: OptionSymbolMeta, state: CandleState): void {
+  const volume = Math.max(0, state.lastCumulativeVolume - state.volumeAtOpen);
+  const timestamp = new Date(state.minuteStartMs).toISOString();
+  try {
+    marketDb
+      .prepare(
+        `INSERT INTO options_intraday
+           (underlying, expiry, strike, option_type, timestamp, open, high, low, close, volume, oi)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+         ON CONFLICT(underlying, expiry, strike, option_type, timestamp) DO UPDATE SET
+           open   = excluded.open,
+           high   = excluded.high,
+           low    = excluded.low,
+           close  = excluded.close,
+           volume = excluded.volume`
+      )
+      .run(
+        meta.underlying, meta.expiry, meta.strike, meta.optionType,
+        timestamp, state.open, state.high, state.low, state.close, volume
+      );
+  } catch (err) {
+    console.warn(
+      "[liveFeedService] Failed to persist option candle for %s %s%s%s @ %s: %s",
+      meta.underlying, meta.expiry, meta.strike, meta.optionType, timestamp,
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+/**
+ * True if the symbol shape (no hyphen, ends in CE/PE) says "this is an
+ * option contract" even when parseOptionSymbol() couldn't safely decompose
+ * it. Used to avoid misfiling an unparseable option into ohlcv_intraday.
+ */
+function looksLikeOptionSymbol(rawSymbol: string): boolean {
+  const bare = rawSymbol.includes(":") ? rawSymbol.split(":").slice(1).join(":") : rawSymbol;
+  return !bare.includes("-") && (bare.endsWith("CE") || bare.endsWith("PE"));
+}
+
+/** Persists a completed candle to the correct table based on symbol shape. */
+function finalizeCandle(symbol: string, state: CandleState): void {
+  const optionMeta = parseOptionSymbol(symbol);
+  if (optionMeta) {
+    upsertOptionsCandle(optionMeta, state);
+    return;
+  }
+  if (looksLikeOptionSymbol(symbol)) {
+    // Shaped like an option contract but we couldn't safely split
+    // underlying/expiry/strike (e.g. a compact weekly-expiry code) — skip
+    // rather than misfile it into the equity table under a wrong identity.
+    console.warn(
+      "[liveFeedService] Could not classify option symbol %s for candle persistence — skipping",
+      symbol
+    );
+    return;
+  }
+  upsertOhlcvCandle(symbol, state);
+}
+
+/**
+ * Folds one tick into the in-memory 1-minute candle for its symbol. Never
+ * writes to the database itself — it only finalizes (and persists) the
+ * previous minute's candle once a tick confirms that minute has ended.
+ * Called synchronously right after the quote cache is updated so it never
+ * delays the tick from being reflected to readers of getLiveQuote(s)/any
+ * broadcast that consumes the cache.
+ */
+function recordTick(quote: Quote): void {
+  const minuteStartMs = floorToMinuteMs(quote.timestamp);
+  const existing = candleState.get(quote.symbol);
+
+  if (!existing) {
+    candleState.set(quote.symbol, {
+      minuteStartMs,
+      open: quote.ltp,
+      high: quote.ltp,
+      low: quote.ltp,
+      close: quote.ltp,
+      volumeAtOpen: quote.volume,
+      lastCumulativeVolume: quote.volume,
+    });
+    return;
+  }
+
+  if (minuteStartMs > existing.minuteStartMs) {
+    // Minute boundary crossed — persist the just-completed candle, then
+    // start a fresh one for the new minute.
+    finalizeCandle(quote.symbol, existing);
+    candleState.set(quote.symbol, {
+      minuteStartMs,
+      open: quote.ltp,
+      high: quote.ltp,
+      low: quote.ltp,
+      close: quote.ltp,
+      volumeAtOpen: existing.lastCumulativeVolume,
+      lastCumulativeVolume: quote.volume,
+    });
+    return;
+  }
+
+  // Same minute — fold the tick into the running aggregate.
+  existing.high = Math.max(existing.high, quote.ltp);
+  existing.low = Math.min(existing.low, quote.ltp);
+  existing.close = quote.ltp;
+  existing.lastCumulativeVolume = quote.volume;
+}
+
+/**
+ * Sweeps in-progress candles for any whose minute has fully elapsed without
+ * a new tick arriving to trigger the boundary in recordTick() — e.g. a
+ * thinly-traded symbol going quiet near the close. Runs on a periodic timer
+ * rather than per-tick so a stalled symbol's last candle still lands in the
+ * database promptly instead of being lost.
+ */
+function flushStaleCandles(): void {
+  const currentMinuteStartMs = Math.floor(Date.now() / 60_000) * 60_000;
+  for (const [symbol, state] of candleState) {
+    if (state.minuteStartMs < currentMinuteStartMs) {
+      finalizeCandle(symbol, state);
+      candleState.delete(symbol);
+    }
+  }
+}
+
+setInterval(flushStaleCandles, CANDLE_FLUSH_INTERVAL_MS);
 
 // ── Subscription manager ────────────────────────────────────────────────────
 //
@@ -177,6 +414,14 @@ class SubscriptionManager {
       const idx = this.order.indexOf(symbol);
       if (idx !== -1) this.order.splice(idx, 1);
       quoteCache.delete(symbol);
+
+      // Persist whatever partial candle we had rather than silently
+      // dropping it on unsubscribe/eviction.
+      const pending = candleState.get(symbol);
+      if (pending) {
+        finalizeCandle(symbol, pending);
+        candleState.delete(symbol);
+      }
     }
   }
 
@@ -250,7 +495,13 @@ function handleMessage(data: WebSocket.RawData): void {
   }
 
   const quote = parseTickMessage(parsed);
-  if (quote) quoteCache.set(quote.symbol, quote);
+  if (!quote) return;
+
+  quoteCache.set(quote.symbol, quote);
+  // Candle aggregation happens after the cache is updated (and is itself
+  // just an in-memory map update except on a completed minute boundary),
+  // so it never delays ticks from reaching the broadcast/cache path.
+  recordTick(quote);
 }
 
 function scheduleReconnect(): void {
