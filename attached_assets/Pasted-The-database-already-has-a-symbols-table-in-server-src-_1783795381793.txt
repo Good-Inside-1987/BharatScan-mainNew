@@ -1,0 +1,31 @@
+The database already has a "symbols" table in server/src/db/market-schema.ts (token, symbol,
+exchange, isin, name, sector, industry, lot_size, tick_size, instrument_type, is_fo_eligible,
+index_membership, listing_date, is_delisted, updated_at) but nothing currently populates it.
+
+Build a symbol master import job that fills this table:
+
+1. Check Fyers' current API documentation for their publicly downloadable symbol master files
+   (they publish CSV files listing every tradable NSE Capital Market and NSE F&O instrument, no
+   auth required). Look up the current, correct URLs — don't guess or hardcode an old one.
+2. Also fetch NSE's official index constituent lists (e.g. the Nifty 50 list, Nifty 100 list,
+   Nifty 500 list — published as CSVs on NSE's own website) so the "index_membership" column can
+   be correctly tagged (e.g. "NIFTY50,NIFTY100" for a stock in both).
+3. Parse both sources and upsert into the "symbols" table using INSERT ... ON CONFLICT (token)
+   DO UPDATE, so re-running this never duplicates rows — always update the existing row instead.
+   Set is_fo_eligible = true for anything present in the F&O symbol master file.
+4. Add this as a scheduled job that runs automatically using the existing "symbolMaster" cron
+   time already defined in server/src/config/environment.ts (syncSchedule.symbolMaster, currently
+   7am Monday) — wire it into server/src/services/scheduler.ts alongside the existing
+   liveOpen/liveClose jobs.
+5. Also add a manual "Refresh Symbol Master" button in the Settings → API/Data Source page (in
+   artifacts/bharatscan/src/pages/Settings.tsx or DataSourcePanels.tsx) that triggers the same
+   import on demand, with a loading spinner and a toast showing how many symbols were
+   imported/updated.
+6. Add a small server route (e.g. GET /api/symbols?index=NIFTY50) so the frontend can fetch a
+   preset universe list by name instead of the user typing symbols manually.
+
+IMPORTANT: only ever ADD to or UPDATE the "symbols" table — never drop or recreate it, and never
+touch any other existing table (especially broker_connections).
+
+TEST: after running the manual refresh button, confirm the symbols table has real data (check
+row count), and confirm GET /api/symbols?index=NIFTY50 returns roughly 50 symbols.

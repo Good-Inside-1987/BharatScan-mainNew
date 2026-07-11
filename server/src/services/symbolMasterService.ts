@@ -1,0 +1,205 @@
+// Symbol Master sync service.
+// Downloads NSE Capital Market symbols from Fyers' public CSV (no auth required),
+// builds F&O eligibility from the Fyers NSE_FO CSV, tags index membership from
+// NSE's official index constituent lists, then upserts into the symbols table.
+//
+// SAFE: only ever INSERTs or UPDATEs symbols — never drops or truncates the table.
+
+import { DatabaseSync } from "node:sqlite";
+
+// ── Source URLs ──────────────────────────────────────────────────────────────
+const FYERS_CM_URL = "https://public.fyers.in/sym_details/NSE_CM.csv";
+const FYERS_FO_URL = "https://public.fyers.in/sym_details/NSE_FO.csv";
+
+// NSE archives requires a browser-like User-Agent + Referer to avoid 503s.
+const NSE_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  Referer: "https://www.nseindia.com",
+};
+
+interface NseIndexCfg {
+  name: string;
+  url: string;
+}
+
+const NSE_INDICES: NseIndexCfg[] = [
+  {
+    name: "NIFTY50",
+    url: "https://nsearchives.nseindia.com/content/indices/ind_nifty50list.csv",
+  },
+  {
+    name: "NIFTY100",
+    url: "https://nsearchives.nseindia.com/content/indices/ind_nifty100list.csv",
+  },
+  {
+    name: "NIFTY500",
+    url: "https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv",
+  },
+];
+
+// ── Fyers CM CSV column indices (no header row) ───────────────────────────
+// 0: full_token   1: company_name  2: instr_type_code  3: lot_size
+// 4: tick_size    5: isin          6: trading_hours     7: last_updated
+// 8: expiry       9: fyers_ticker  10: ?  11: segment_code  12: short_token
+// 13: symbol      14...: other fields
+const CM_COL_TOKEN      = 0;
+const CM_COL_NAME       = 1;
+const CM_COL_INSTR_TYPE = 2;
+const CM_COL_LOT_SIZE   = 3;
+const CM_COL_TICK_SIZE  = 4;
+const CM_COL_ISIN       = 5;
+const CM_COL_SYMBOL     = 13;
+
+// Fyers instrument type code 0 = EQ (equity). Skip everything else from CM file.
+const EQ_INSTR_TYPE = "0";
+
+const INSTR_TYPE_LABEL: Record<string, string> = {
+  "0": "EQ", "1": "PREFSHARES", "2": "DEBENTURES", "3": "WARRANTS", "4": "MISC",
+  "10": "INDEX", "11": "FUTIDX", "12": "OPTIDX", "13": "FUTSTK", "14": "OPTSTK",
+  "15": "FUTCUR", "16": "OPTCUR",
+};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+async function fetchText(url: string, headers?: Record<string, string>): Promise<string> {
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
+  return res.text();
+}
+
+// ── NSE index constituent fetcher ────────────────────────────────────────────
+// Returns:
+//   indexMap  — symbol → ["NIFTY50", "NIFTY100", ...]
+//   sectorMap — symbol → sector string (from the "Industry" column in NSE CSVs)
+async function fetchNseIndexData(): Promise<{
+  indexMap: Map<string, string[]>;
+  sectorMap: Map<string, string>;
+}> {
+  const indexMap  = new Map<string, string[]>();
+  const sectorMap = new Map<string, string>();
+
+  for (const idx of NSE_INDICES) {
+    try {
+      const text  = await fetchText(idx.url, NSE_HEADERS);
+      const lines = text.trim().split("\n");
+      // Header: Company Name,Industry,Symbol,Series,ISIN Code
+      for (let i = 1; i < lines.length; i++) {
+        const cols   = lines[i].split(",");
+        const sector = cols[1]?.trim();
+        const symbol = cols[2]?.trim();
+        if (!symbol) continue;
+
+        if (!indexMap.has(symbol)) indexMap.set(symbol, []);
+        indexMap.get(symbol)!.push(idx.name);
+
+        if (sector && !sectorMap.has(symbol)) {
+          sectorMap.set(symbol, sector);
+        }
+      }
+      console.log(`[symbol-master] ${idx.name}: ${indexMap.size} symbols so far`);
+    } catch (err) {
+      console.warn(
+        `[symbol-master] Could not fetch ${idx.name} index: ` +
+        `${err instanceof Error ? err.message : String(err)} — index_membership may be incomplete`,
+      );
+    }
+  }
+
+  return { indexMap, sectorMap };
+}
+
+// ── Main export ───────────────────────────────────────────────────────────────
+export interface SymbolMasterResult {
+  upserted: number;
+  timestamp: string;
+}
+
+export async function syncSymbolMaster(
+  marketDb: DatabaseSync,
+): Promise<SymbolMasterResult> {
+  console.log("[symbol-master] Starting sync …");
+
+  // 1. NSE index data (best-effort — won't abort if NSE is unreachable)
+  const { indexMap, sectorMap } = await fetchNseIndexData();
+
+  // 2. F&O underlyings — build a set of symbol names that have F&O contracts
+  const foUnderlyings = new Set<string>();
+  {
+    const foText  = await fetchText(FYERS_FO_URL);
+    const foLines = foText.trim().split("\n");
+    for (const line of foLines) {
+      const cols   = line.split(",");
+      const symbol = cols[CM_COL_SYMBOL]?.trim();
+      if (symbol) foUnderlyings.add(symbol);
+    }
+    console.log(`[symbol-master] F&O underlyings: ${foUnderlyings.size}`);
+  }
+
+  // 3. CM symbol master — parse EQ instruments only
+  const cmText  = await fetchText(FYERS_CM_URL);
+  const cmLines = cmText.trim().split("\n");
+
+  const now = new Date().toISOString();
+  let upserted = 0;
+
+  const stmt = marketDb.prepare(`
+    INSERT INTO symbols (
+      token, symbol, exchange, isin, name, sector, industry,
+      lot_size, tick_size, instrument_type, is_fo_eligible,
+      index_membership, listing_date, is_delisted, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+    ON CONFLICT(token) DO UPDATE SET
+      symbol           = excluded.symbol,
+      exchange         = excluded.exchange,
+      isin             = excluded.isin,
+      name             = excluded.name,
+      sector           = excluded.sector,
+      industry         = excluded.industry,
+      lot_size         = excluded.lot_size,
+      tick_size        = excluded.tick_size,
+      instrument_type  = excluded.instrument_type,
+      is_fo_eligible   = excluded.is_fo_eligible,
+      index_membership = excluded.index_membership,
+      updated_at       = excluded.updated_at
+  `);
+
+  marketDb.exec("BEGIN");
+  try {
+    for (const line of cmLines) {
+      const cols = line.split(",");
+      if (cols.length < CM_COL_SYMBOL + 1) continue;
+
+      // Skip anything that isn't a plain equity
+      if (cols[CM_COL_INSTR_TYPE]?.trim() !== EQ_INSTR_TYPE) continue;
+
+      const token  = cols[CM_COL_TOKEN]?.trim();
+      const symbol = cols[CM_COL_SYMBOL]?.trim();
+      if (!token || !symbol) continue;
+
+      const name      = cols[CM_COL_NAME]?.trim() ?? null;
+      const isin      = cols[CM_COL_ISIN]?.trim() || null;
+      const lotSize   = parseInt(cols[CM_COL_LOT_SIZE] ?? "1",  10) || 1;
+      const tickSize  = parseFloat(cols[CM_COL_TICK_SIZE] ?? "0.05") || 0.05;
+
+      const sector          = sectorMap.get(symbol) ?? null;
+      const isFoEligible    = foUnderlyings.has(symbol) ? 1 : 0;
+      const indexMembership = indexMap.get(symbol)?.join(",") ?? null;
+      const instrLabel      = INSTR_TYPE_LABEL[EQ_INSTR_TYPE];
+
+      stmt.run(
+        token, symbol, "NSE", isin, name, sector, null,
+        lotSize, tickSize, instrLabel, isFoEligible,
+        indexMembership, null, now,
+      );
+      upserted++;
+    }
+    marketDb.exec("COMMIT");
+  } catch (err) {
+    marketDb.exec("ROLLBACK");
+    throw err;
+  }
+
+  console.log(`[symbol-master] Done — ${upserted} rows upserted`);
+  return { upserted, timestamp: now };
+}

@@ -2,6 +2,8 @@ import cron from "node-cron";
 import { CronExpressionParser } from "cron-parser";
 import { config } from "../config/environment.js";
 import { connect, disconnect } from "./liveFeedService.js";
+import { marketDb } from "../db.js";
+import { syncSymbolMaster } from "./symbolMasterService.js";
 
 let schedulerActive = false;
 
@@ -19,6 +21,20 @@ export function startScheduler(): void {
   cron.schedule(
     config.syncSchedule.liveClose,
     () => { disconnect(); },
+    { timezone: config.timezone }
+  );
+
+  // Symbol master refresh — every Monday at 7 AM IST
+  cron.schedule(
+    config.syncSchedule.symbolMaster,
+    () => {
+      console.log("[scheduler] Running scheduled symbol master sync …");
+      void syncSymbolMaster(marketDb).then(r => {
+        console.log(`[scheduler] Symbol master sync complete: ${r.upserted} rows upserted`);
+      }).catch(err => {
+        console.error("[scheduler] Symbol master sync failed:", err instanceof Error ? err.message : String(err));
+      });
+    },
     { timezone: config.timezone }
   );
 
@@ -47,6 +63,10 @@ export function getSchedulerStatus() {
       liveClose: {
         expression: config.syncSchedule.liveClose,
         nextRun: schedulerActive ? nextFireTime(config.syncSchedule.liveClose) : null,
+      },
+      symbolMaster: {
+        expression: config.syncSchedule.symbolMaster,
+        nextRun: schedulerActive ? nextFireTime(config.syncSchedule.symbolMaster) : null,
       },
     },
   };

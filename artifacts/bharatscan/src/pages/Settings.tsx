@@ -17,6 +17,7 @@ import {
   apiListPortfolios, apiDeletePortfolio,
   apiListScannerDashboards, apiDeleteScannerDashboard,
   apiGetSchedulerStatus, apiGetMarketStatus, apiGetQuoteCacheStats, apiResetQuoteCacheStats,
+  apiRefreshSymbolMaster,
   type ApiScan, type ApiSchedulerStatus, type ApiMarketStatus, type ApiQuoteCacheStats,
 } from "@/lib/api";
 import { toast } from "sonner";
@@ -207,6 +208,9 @@ export default function Settings() {
   const [quoteCacheLoading, setQuoteCacheLoading] = useState(false);
   const [quoteCacheHistory, setQuoteCacheHistory] = useState<{ t: number; rate: number }[]>([]);
   const [quoteCacheResetting, setQuoteCacheResetting] = useState(false);
+
+  // ── Symbol master refresh ──────────────────────────────────────────────────
+  const [symbolRefreshing, setSymbolRefreshing] = useState(false);
 
   // ── Load all settings from backend on mount ────────────────────────────────
   useEffect(() => {
@@ -411,6 +415,18 @@ export default function Settings() {
       toast.error("Failed to reset quote cache stats");
     } finally {
       setQuoteCacheResetting(false);
+    }
+  }, []);
+
+  const handleRefreshSymbolMaster = useCallback(async () => {
+    setSymbolRefreshing(true);
+    try {
+      const result = await apiRefreshSymbolMaster();
+      toast.success(`Symbol master updated — ${result.upserted.toLocaleString()} symbols imported/updated`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Symbol master refresh failed");
+    } finally {
+      setSymbolRefreshing(false);
     }
   }, []);
 
@@ -769,6 +785,26 @@ export default function Settings() {
             <div className="space-y-4">
               <MarketApiPanel />
               <DataSourcePanels />
+              <SectionCard title="Symbol Master" icon={Database}>
+                <SettingRow
+                  label="Refresh Symbol Master"
+                  description="Downloads the full NSE symbol list from Fyers (≈2,000 equities) and tags Nifty 50 / 100 / 500 membership. Runs automatically every Monday at 7 AM IST."
+                >
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-7 px-3"
+                    onClick={handleRefreshSymbolMaster}
+                    disabled={symbolRefreshing}
+                  >
+                    {symbolRefreshing
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <RefreshCw className="h-3 w-3" />
+                    }
+                    {symbolRefreshing ? "Refreshing…" : "Refresh Now"}
+                  </Button>
+                </SettingRow>
+              </SectionCard>
               <SectionCard title="CSV Format Settings" icon={Database}>
                 <SettingRow label="CSV Date Format" description="Date format in your NSE CSV files">
                   <span className="text-xs text-foreground bg-muted px-2 py-1 rounded font-mono">YYYY-MM-DD</span>

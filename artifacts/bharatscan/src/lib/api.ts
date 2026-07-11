@@ -176,6 +176,44 @@ export const apiGetMarketStatus = async () => {
   return res.json() as Promise<ApiMarketStatus>;
 };
 
+// ── Symbol Master ─────────────────────────────────────────────────────────────
+
+export interface ApiSymbol {
+  token: string;
+  symbol: string;
+  exchange: string;
+  isin: string | null;
+  name: string | null;
+  sector: string | null;
+  industry: string | null;
+  lot_size: number;
+  tick_size: number;
+  instrument_type: string | null;
+  is_fo_eligible: number;
+  index_membership: string | null;
+  listing_date: string | null;
+  is_delisted: number;
+}
+
+export interface ApiSymbolsResponse {
+  symbols: ApiSymbol[];
+  count: number;
+}
+
+export const apiGetSymbols = (params?: { index?: string; fo_only?: boolean; limit?: number }) => {
+  const qs = new URLSearchParams();
+  if (params?.index)    qs.set("index", params.index);
+  if (params?.fo_only)  qs.set("fo_only", "true");
+  if (params?.limit)    qs.set("limit", String(params.limit));
+  const query = qs.toString() ? `?${qs.toString()}` : "";
+  return request<ApiSymbolsResponse>(`/symbols${query}`);
+};
+
+export const apiRefreshSymbolMaster = () =>
+  request<{ ok: boolean; upserted: number; timestamp: string }>("/symbols/refresh", {
+    method: "POST",
+  });
+
 export const apiSubscribeMarketSymbols = (symbols: string[]) =>
   request<{ ok: boolean; symbols: string[] }>("/market-data/subscribe", {
     method: "POST",
