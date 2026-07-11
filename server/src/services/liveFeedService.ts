@@ -350,10 +350,14 @@ setInterval(flushStaleCandles, CANDLE_FLUSH_INTERVAL_MS);
 // `order` tracks insertion order for FIFO rotation: index 0 is the
 // least-recently-added (and therefore first to be evicted) symbol.
 // `subscribed` mirrors the same set for O(1) membership checks.
+// `protectedSymbols` marks the auto-subscribed F&O set (see
+// autoSubscribeFoSymbols() below) — FIFO eviction skips over these entirely,
+// so an ad-hoc chart-view subscribe can never bump one out.
 
 class SubscriptionManager {
   private order: string[] = [];
   private subscribed = new Set<string>();
+  private protectedSymbols = new Set<string>();
 
   get size(): number {
     return this.subscribed.size;
@@ -363,17 +367,40 @@ class SubscriptionManager {
     return this.subscribed.has(symbol);
   }
 
+  isProtected(symbol: string): boolean {
+    return this.protectedSymbols.has(symbol);
+  }
+
   list(): string[] {
     return [...this.order];
   }
 
+  listProtected(): string[] {
+    return [...this.protectedSymbols];
+  }
+
+  /** Drops the "protected" flag from every symbol without unsubscribing them. */
+  clearProtected(): void {
+    this.protectedSymbols.clear();
+  }
+
   /**
-   * Adds symbols to the subscribed set, evicting the oldest symbols first
-   * (FIFO) if the addition would exceed MAX_SUBSCRIBED_SYMBOLS. Returns the
-   * symbols actually added and the symbols evicted as a side effect, so the
-   * caller can send the corresponding SUB/UNSUB frames.
+   * Adds symbols to the subscribed set, evicting the oldest *unprotected*
+   * symbols first (FIFO) if the addition would exceed
+   * MAX_SUBSCRIBED_SYMBOLS. Protected symbols are never evicted — if there
+   * isn't enough unprotected room to make space for everything requested,
+   * the excess requested symbols are rejected instead (caller should log
+   * this) rather than bumping out part of the protected set.
+   *
+   * Pass `protect: true` to mark the symbols actually added as protected
+   * (used for the auto-subscribed F&O universe).
    */
-  add(symbols: string[]): { added: string[]; evicted: string[] } {
+  add(symbols: string[], options: { protect?: boolean } = {}): {
+    added: string[];
+    evicted: string[];
+    rejected: string[];
+  } {
+    const { protect = false } = options;
     const toAdd = symbols.filter((s) => !this.subscribed.has(s));
     // De-dupe while preserving order, in case the caller passed duplicates.
     const uniqueToAdd = [...new Set(toAdd)];
@@ -382,29 +409,32 @@ class SubscriptionManager {
     const projectedSize = this.subscribed.size + uniqueToAdd.length;
     const overflow = projectedSize - MAX_SUBSCRIBED_SYMBOLS;
     if (overflow > 0) {
-      // Evict the oldest currently-subscribed symbols to make room.
-      // Never evict a symbol we're about to add in the same call.
+      // Evict the oldest currently-subscribed, UNPROTECTED symbols to make
+      // room. Never evict a protected symbol, and never evict a symbol
+      // we're about to (re-)add in the same call.
       for (let i = 0; i < this.order.length && evicted.length < overflow; i++) {
         const candidate = this.order[i];
-        if (!uniqueToAdd.includes(candidate)) evicted.push(candidate);
+        if (this.protectedSymbols.has(candidate)) continue;
+        if (uniqueToAdd.includes(candidate)) continue;
+        evicted.push(candidate);
       }
       for (const symbol of evicted) this.remove(symbol);
     }
 
-    // If a single add() call itself exceeds the cap (e.g. 250 brand-new
-    // symbols at once), only keep the most recent MAX_SUBSCRIBED_SYMBOLS —
-    // still simple FIFO, just applied within the same batch.
-    const capped =
-      uniqueToAdd.length > MAX_SUBSCRIBED_SYMBOLS
-        ? uniqueToAdd.slice(uniqueToAdd.length - MAX_SUBSCRIBED_SYMBOLS)
-        : uniqueToAdd;
+    // Only accept as many new symbols as actually fit now. If eviction
+    // couldn't free enough room (e.g. everything subscribed is protected),
+    // the remainder is rejected rather than displacing a protected symbol.
+    const availableRoom = Math.max(0, MAX_SUBSCRIBED_SYMBOLS - this.subscribed.size);
+    const capped = uniqueToAdd.slice(0, availableRoom);
+    const rejected = uniqueToAdd.slice(capped.length);
 
     for (const symbol of capped) {
       this.subscribed.add(symbol);
       this.order.push(symbol);
+      if (protect) this.protectedSymbols.add(symbol);
     }
 
-    return { added: capped, evicted };
+    return { added: capped, evicted, rejected };
   }
 
   remove(symbols: string[] | string): void {
@@ -413,6 +443,7 @@ class SubscriptionManager {
       if (!this.subscribed.delete(symbol)) continue;
       const idx = this.order.indexOf(symbol);
       if (idx !== -1) this.order.splice(idx, 1);
+      this.protectedSymbols.delete(symbol);
       quoteCache.delete(symbol);
 
       // Persist whatever partial candle we had rather than silently
@@ -428,6 +459,7 @@ class SubscriptionManager {
   clear(): void {
     this.order = [];
     this.subscribed.clear();
+    this.protectedSymbols.clear();
   }
 }
 
@@ -618,23 +650,39 @@ function sendIfOpen(message: string): void {
 
 /**
  * Subscribes to the given symbols, enforcing the 200-symbol cap via FIFO
- * eviction of the oldest subscriptions. Triggers a connection attempt if
- * one isn't already established. Symbols already subscribed are no-ops.
+ * eviction of the oldest *unprotected* subscriptions. Triggers a connection
+ * attempt if one isn't already established. Symbols already subscribed are
+ * no-ops. Pass `{ protect: true }` to mark the symbols added as protected
+ * (see autoSubscribeFoSymbols()) so ad-hoc future subscribe calls can never
+ * evict them. Returns what actually happened so callers that care (e.g. the
+ * F&O auto-subscribe job) can report/log it.
  */
-export function subscribeSymbols(symbols: string[]): void {
-  if (symbols.length === 0) return;
+export function subscribeSymbols(
+  symbols: string[],
+  options: { protect?: boolean } = {}
+): { added: string[]; evicted: string[]; rejected: string[] } {
+  if (symbols.length === 0) return { added: [], evicted: [], rejected: [] };
 
-  const { added, evicted } = subscriptions.add(symbols);
+  const { added, evicted, rejected } = subscriptions.add(symbols, options);
 
   if (evicted.length > 0) {
-    console.log(`[liveFeedService] Evicting ${evicted.length} oldest symbol(s) to stay under the 200 cap`);
+    console.log(`[liveFeedService] Evicting ${evicted.length} oldest unprotected symbol(s) to stay under the 200 cap`);
     sendIfOpen(buildUnsubscribeMessage(evicted));
+  }
+  if (rejected.length > 0) {
+    console.warn(
+      "[liveFeedService] Rejected %d subscribe request(s) — at the 200-symbol cap with no unprotected symbol left to evict: %s",
+      rejected.length,
+      rejected.join(", ")
+    );
   }
   if (added.length > 0) {
     sendIfOpen(buildSubscribeMessage(added));
   }
 
   void connect();
+
+  return { added, evicted, rejected };
 }
 
 /** Unsubscribes the given symbols and drops their cached quotes. */
@@ -650,4 +698,93 @@ export function unsubscribeSymbols(symbols: string[]): void {
 /** Current subscribed symbols, for diagnostics/tests. */
 export function getSubscribedSymbols(): string[] {
   return subscriptions.list();
+}
+
+/** Currently-protected (auto-subscribed F&O) symbols, for status/diagnostics. */
+export function getProtectedSymbols(): string[] {
+  return subscriptions.listProtected();
+}
+
+/**
+ * Drops the "protected" flag from every symbol without unsubscribing them.
+ * Called at market close alongside disconnect() so tomorrow's liveOpen job
+ * rebuilds the F&O auto-subscribe list fresh (in case eligibility or prices
+ * changed overnight) instead of treating yesterday's list as still pinned.
+ */
+export function clearProtectedSymbols(): void {
+  subscriptions.clearProtected();
+}
+
+interface FoRankedSymbol {
+  symbol: string;
+  price: number;
+}
+
+/**
+ * Ranks all F&O-eligible symbols by their most recent known daily close
+ * price (ascending). Symbols with no ohlcv_daily row yet are excluded
+ * entirely rather than guessed at.
+ */
+function rankFoSymbolsByPrice(): FoRankedSymbol[] {
+  return marketDb
+    .prepare(
+      `SELECT s.symbol AS symbol, latest.close AS price
+         FROM symbols s
+         JOIN (
+           SELECT od.symbol, od.close
+             FROM ohlcv_daily od
+             JOIN (
+               SELECT symbol, MAX(date) AS max_date
+                 FROM ohlcv_daily
+                GROUP BY symbol
+             ) m ON m.symbol = od.symbol AND m.max_date = od.date
+         ) latest ON latest.symbol = s.symbol
+        WHERE s.is_fo_eligible = 1
+          AND latest.close IS NOT NULL
+        ORDER BY latest.close ASC`
+    )
+    .all() as unknown as FoRankedSymbol[];
+}
+
+export interface FoAutoSubscribeResult {
+  /** F&O-eligible symbols that had a known price to rank by. */
+  eligibleCount: number;
+  /** How many of the lowest-priced eligible symbols were requested (≤ limit). */
+  requestedCount: number;
+  /** How many actually got subscribed as protected (should equal requestedCount in the normal case). */
+  subscribedCount: number;
+  /** The resulting protected symbol list. */
+  symbols: string[];
+}
+
+/**
+ * Prioritizes the live feed toward F&O (futures-eligible) stocks instead of
+ * leaving it purely reactive to what's being viewed in the app: ranks all
+ * is_fo_eligible symbols by their latest known daily close price (cheapest
+ * first) and subscribes to the lowest-priced `limit` of them as protected,
+ * so ad-hoc chart-view subscribes can never evict them.
+ *
+ * Called by the liveOpen cron job right after connect() succeeds. Safe to
+ * call again later (e.g. via a manual test route) — it recomputes the
+ * ranking from current data each time.
+ */
+export function autoSubscribeFoSymbols(limit: number = MAX_SUBSCRIBED_SYMBOLS): FoAutoSubscribeResult {
+  const ranked = rankFoSymbolsByPrice();
+  const chosen = ranked.slice(0, limit).map((r) => r.symbol);
+
+  const result = subscribeSymbols(chosen, { protect: true });
+
+  console.log(
+    "[liveFeedService] F&O auto-subscribe: %d/%d lowest-priced symbols subscribed (%d eligible with a known price)",
+    result.added.length,
+    chosen.length,
+    ranked.length
+  );
+
+  return {
+    eligibleCount: ranked.length,
+    requestedCount: chosen.length,
+    subscribedCount: result.added.length,
+    symbols: subscriptions.listProtected(),
+  };
 }

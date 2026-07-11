@@ -2,7 +2,13 @@ import { Router, type Request, type Response } from "express";
 import { appDb } from "../db.js";
 import { getHistoricalBars, getLiveQuotes, getQuoteCacheStats, resetQuoteCacheStats } from "../services/marketDataService.js";
 import { getOptionExpiriesFromBroker, loadOptionsFromBroker } from "../services/optionsDataService.js";
-import { subscribeSymbols, unsubscribeSymbols } from "../services/liveFeedService.js";
+import {
+  subscribeSymbols,
+  unsubscribeSymbols,
+  getSubscribedSymbols,
+  getProtectedSymbols,
+  autoSubscribeFoSymbols,
+} from "../services/liveFeedService.js";
 import { getSchedulerStatus } from "../services/scheduler.js";
 import {
   AuthenticationError,
@@ -294,6 +300,38 @@ router.post("/options/load", async (req: Request, res: Response) => {
 
 router.get("/scheduler-status", (_req: Request, res: Response) => {
   res.json(getSchedulerStatus());
+});
+
+/**
+ * Read-only view of the live feed's subscription state, in particular which
+ * symbols are currently "protected" (auto-subscribed F&O) vs. ad-hoc.
+ */
+router.get("/live/subscriptions", (_req: Request, res: Response) => {
+  const subscribed = getSubscribedSymbols();
+  const protectedSymbols = getProtectedSymbols();
+  const protectedSet = new Set(protectedSymbols);
+  res.json({
+    totalSubscribed: subscribed.length,
+    protectedCount: protectedSymbols.length,
+    adHocCount: subscribed.length - protectedSet.size,
+    protectedSymbols,
+    adHocSymbols: subscribed.filter((s) => !protectedSet.has(s)),
+  });
+});
+
+/**
+ * TEMPORARY test route — manually runs the same F&O auto-subscribe logic the
+ * liveOpen cron job triggers, for verifying behavior outside market hours.
+ * Safe to remove once the liveOpen job itself has been verified live.
+ */
+router.post("/live/auto-subscribe-fo/test", (_req: Request, res: Response) => {
+  try {
+    const result = autoSubscribeFoSymbols();
+    res.json(result);
+  } catch (err) {
+    console.error("[marketData] /live/auto-subscribe-fo/test error:", err instanceof Error ? err.message : err);
+    res.status(500).json({ error: "Failed to run F&O auto-subscribe" });
+  }
 });
 
 router.get("/quotes/status", (_req: Request, res: Response) => {

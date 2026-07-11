@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { CronExpressionParser } from "cron-parser";
 import { config } from "../config/environment.js";
-import { connect, disconnect } from "./liveFeedService.js";
+import { connect, disconnect, autoSubscribeFoSymbols, clearProtectedSymbols } from "./liveFeedService.js";
 import { marketDb } from "../db.js";
 import { syncSymbolMaster } from "./symbolMasterService.js";
 
@@ -14,13 +14,30 @@ export function startScheduler(): void {
 
   cron.schedule(
     config.syncSchedule.liveOpen,
-    () => { void connect(); },
+    () => {
+      void connect().then(() => {
+        try {
+          autoSubscribeFoSymbols();
+        } catch (err) {
+          console.error(
+            "[scheduler] F&O auto-subscribe failed:",
+            err instanceof Error ? err.message : String(err)
+          );
+        }
+      });
+    },
     { timezone: config.timezone }
   );
 
   cron.schedule(
     config.syncSchedule.liveClose,
-    () => { disconnect(); },
+    () => {
+      disconnect();
+      // Clear protection flags (not the connection state) so tomorrow's
+      // liveOpen job rebuilds the F&O list fresh instead of treating
+      // today's ranking as still pinned.
+      clearProtectedSymbols();
+    },
     { timezone: config.timezone }
   );
 

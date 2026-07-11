@@ -1,0 +1,40 @@
+Currently, server/src/services/scheduler.ts only opens the Fyers WebSocket connection at market
+open (config.syncSchedule.liveOpen) via connect() — no symbols get automatically subscribed.
+Symbols only get added reactively elsewhere in the app (e.g. when a user views a stock chart),
+via subscribeSymbols() in server/src/services/liveFeedService.ts, which enforces Fyers' 200-symbol
+cap using FIFO eviction (oldest subscribed symbol gets dropped first).
+
+Change this so the live feed automatically prioritizes F&O (futures-eligible) stocks instead of
+being purely reactive to what's being viewed in the app:
+
+1. In the "symbols" table (populated by the symbol master import job), there are more than 200
+   symbols with is_fo_eligible = true. At market open (in the existing liveOpen cron job in
+   scheduler.ts), after connect() succeeds, automatically:
+   a. Query all symbols where is_fo_eligible = true
+   b. Get each one's most recent known price — use the latest close price from the ohlcv_daily
+      table (most recent date available for that symbol). If a symbol has no ohlcv_daily row yet,
+      exclude it from this ranking rather than guessing a price.
+   c. Sort ascending by that price (lowest price first)
+   d. Take the first 200 symbols from that sorted list (this naturally excludes the highest-priced
+      F&O stocks once the list exceeds 200)
+   e. Call subscribeSymbols() with this list of 200 symbols
+
+2. Mark these 200 auto-subscribed F&O symbols as "protected" in the SubscriptionManager (in
+   liveFeedService.ts) so that the existing FIFO eviction logic used for other, ad-hoc subscribe
+   calls (e.g. someone viewing an individual stock chart elsewhere in the app) never evicts a
+   protected symbol. If a casual/manual subscribe request would need to evict a symbol to make
+   room and everything currently subscribed is protected, just reject that extra request (log it,
+   don't silently evict a protected F&O symbol) rather than bumping out part of the F&O set.
+
+3. At market close (liveClose job), clear the protected flags along with the normal disconnect,
+   so tomorrow's 9am job rebuilds the list fresh (in case F&O eligibility or prices changed
+   overnight).
+
+4. Add a small read-only status endpoint (or extend the existing scheduler status route) showing
+   which symbols are currently protected/auto-subscribed, so it's easy to verify this worked.
+
+TEST: after the liveOpen job runs (or by manually triggering the same logic via a temporary
+test route if market is closed), confirm exactly 200 F&O symbols get subscribed, confirm they are
+the 200 lowest-priced ones from the eligible list (spot-check a few against ohlcv_daily), and
+confirm that trying to subscribe an additional non-F&O symbol afterward does not evict any of the
+200 protected symbols.
