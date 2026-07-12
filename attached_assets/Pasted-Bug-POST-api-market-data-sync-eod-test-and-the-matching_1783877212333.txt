@@ -1,0 +1,35 @@
+Bug: POST /api/market-data/sync/eod/test (and the matching /sync/intraday/test) 
+in server/src/routes/marketData.ts is a leftover manual test route with no 
+guard against being called on a non-trading day. Calling it on a weekend or 
+market holiday burns the entire daily request budget (config.backfillDailyRequestBudget) 
+in seconds, since every symbol legitimately returns zero bars, and 
+runSymbolLoop() in syncJobs.ts currently counts "zero bars returned" as a 
+failure indistinguishable from a real API error — so the whole budget gets 
+consumed for zero benefit, and by the time you notice, you're locked out 
+until the next reset.
+
+Fix, in two parts:
+
+1. server/src/services/syncJobs.ts — before runSymbolLoop() spends any 
+   budget, check whether `date` is actually a valid trading day (reuse 
+   whatever isTradingDay()/holiday-check logic already exists in 
+   catchUpScheduler.ts for the same purpose — don't duplicate it, extract 
+   it to a shared location if it's currently private to that file). If 
+   `date` is a weekend or a known NSE holiday, skip the entire symbol loop 
+   immediately, log a clear line like "[syncJobs] {date} is not a trading 
+   day — skipping EOD sync, 0 budget spent", and finishSyncLog with status 
+   'completed' and all-zero stats (this is a legitimate no-op, not a 
+   failure). Apply the same guard to runIntradaySyncJob().
+
+2. server/src/routes/marketData.ts — gate /sync/eod/test and 
+   /sync/intraday/test behind the same non-trading-day check with a clear 
+   4xx response (e.g. 409 "{date} is not a trading day, nothing to sync") 
+   rather than letting them silently burn budget on request. Also accept 
+   an optional `?date=YYYY-MM-DD` query param on both test routes (default 
+   still today) so they can be safely used to verify against the last real 
+   trading day without waiting for the next one.
+
+Do not change cron scheduling, budget size, or anything about how a 
+genuine per-symbol failure (network error, auth error, broker 4xx/5xx) is 
+counted — only the "zero bars because the market was closed" case, which 
+is not a failure and should never have spent budget in the first place.

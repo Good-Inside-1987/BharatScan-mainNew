@@ -20,6 +20,7 @@ import { marketDb } from "../db.js";
 import { config } from "../config/environment.js";
 import { getHistoricalBars, getAuthenticatedAdapter, getServiceStats } from "./marketDataService.js";
 import { AuthenticationError, SessionExpiredError } from "../errors/brokerErrors.js";
+import { isTradingDay } from "./tradingCalendar.js";
 
 // ── Fyers symbol helper (same convention as dataLoader.ts's toFyersSymbol) ────
 function toFyersSymbol(symbol: string): string {
@@ -290,6 +291,12 @@ export async function runEodSyncJob(
   const logId = startSyncLog("eod_sync", date);
 
   try {
+    if (!isTradingDay(date)) {
+      console.log("[syncJobs] %s is not a trading day — skipping EOD sync, 0 budget spent", date);
+      finishSyncLog(logId, "completed", { completed: 0, skippedBudget: 0, failed: 0 });
+      return { completed: 0, skippedBudget: 0, failed: 0 };
+    }
+
     const adapter = await getAuthenticatedAdapter();
     if (!adapter) {
       console.warn("[syncJobs] EOD sync skipped — no broker connected");
@@ -353,6 +360,12 @@ export async function runIntradaySyncJob(
   const logId = startSyncLog("intraday_sync", date);
 
   try {
+    if (!isTradingDay(date)) {
+      console.log("[syncJobs] %s is not a trading day — skipping intraday sync, 0 budget spent", date);
+      finishSyncLog(logId, "completed", { completed: 0, skippedBudget: 0, failed: 0 });
+      return { completed: 0, skippedBudget: 0, failed: 0 };
+    }
+
     const adapter = await getAuthenticatedAdapter();
     if (!adapter) {
       console.warn("[syncJobs] Intraday sync skipped — no broker connected");

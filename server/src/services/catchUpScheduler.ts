@@ -28,7 +28,6 @@
  * up where it left off; no separate "remaining backlog" state is persisted.
  */
 
-import { marketDb } from "../db.js";
 import { config } from "../config/environment.js";
 import {
   runEodSyncJob,
@@ -41,6 +40,7 @@ import { runOptionsSyncJob } from "./optionsDataService.js";
 import { runFoBanListJob } from "./foBanListService.js";
 import { runSupplementaryJob } from "./supplementaryJobs.js";
 import { getServiceStats } from "./marketDataService.js";
+import { addDays, isTradingDay, mostRecentTradingDay } from "./tradingCalendar.js";
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -63,54 +63,8 @@ const JOBS: CatchUpJob[] = [
 ];
 
 // ── Date helpers (IST, string-based to avoid UTC day-shift bugs) ─────────────
-
-/** Noon IST anchor avoids DST/UTC-midnight edge cases when adding days. */
-function toDate(dateStr: string): Date {
-  return new Date(`${dateStr}T12:00:00+05:30`);
-}
-
-function toDateStr(d: Date): string {
-  return d.toLocaleDateString("en-CA", { timeZone: config.timezone });
-}
-
-function addDays(dateStr: string, days: number): string {
-  const d = toDate(dateStr);
-  d.setDate(d.getDate() + days);
-  return toDateStr(d);
-}
-
-function isWeekend(dateStr: string): boolean {
-  const day = toDate(dateStr).getDay(); // 0=Sun..6=Sat, stable regardless of local TZ since anchored at noon IST
-  return day === 0 || day === 6;
-}
-
-let holidaysPopulated: boolean | null = null;
-
-function nseHolidaysPopulated(): boolean {
-  if (holidaysPopulated !== null) return holidaysPopulated;
-  const row = marketDb.prepare(`SELECT 1 FROM nse_holidays LIMIT 1`).get();
-  holidaysPopulated = !!row;
-  return holidaysPopulated;
-}
-
-function isHoliday(dateStr: string): boolean {
-  if (!nseHolidaysPopulated()) return false; // empty table — don't hard-fail, just skip this check
-  const row = marketDb.prepare(`SELECT 1 FROM nse_holidays WHERE date = ?`).get(dateStr);
-  return !!row;
-}
-
-/** True for ordinary NSE trading weekdays. A genuine holiday with an empty
- *  nse_holidays table just fails gracefully with no data later, same as today. */
-function isTradingDay(dateStr: string): boolean {
-  return !isWeekend(dateStr) && !isHoliday(dateStr);
-}
-
-/** Walks backward from `dateStr` (inclusive) to the nearest actual trading day. */
-function mostRecentTradingDay(dateStr: string): string {
-  let d = dateStr;
-  while (!isTradingDay(d)) d = addDays(d, -1);
-  return d;
-}
+// isWeekend/isHoliday/isTradingDay/mostRecentTradingDay/addDays now live in
+// tradingCalendar.ts, shared with syncJobs.ts and marketData.ts routes.
 
 /** All trading days strictly between `fromExclusive` and `toInclusive`. */
 function listMissedWeekdays(fromExclusive: string, toInclusive: string): string[] {

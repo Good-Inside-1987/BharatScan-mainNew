@@ -10,9 +10,10 @@ import {
   autoSubscribeFoSymbols,
 } from "../services/liveFeedService.js";
 import { getSchedulerStatus } from "../services/scheduler.js";
-import { runEodSyncJob, runIntradaySyncJob } from "../services/syncJobs.js";
+import { runEodSyncJob, runIntradaySyncJob, todayIST } from "../services/syncJobs.js";
 import { runOptionsSyncJob } from "../services/optionsDataService.js";
 import { runPeriodicCatchUpCheck, runStartupCatchUp, getCatchUpStatus } from "../services/catchUpScheduler.js";
+import { isTradingDay } from "../services/tradingCalendar.js";
 import {
   AuthenticationError,
   SessionExpiredError,
@@ -470,9 +471,14 @@ router.post("/live/auto-subscribe-fo/test", (_req: Request, res: Response) => {
  * the scheduler triggers at 4pm / 4:30pm IST, for verifying behavior outside
  * that window. Safe to remove once both jobs have been verified live.
  */
-router.post("/sync/eod/test", async (_req: Request, res: Response) => {
+router.post("/sync/eod/test", async (req: Request, res: Response) => {
+  const date = typeof req.query.date === "string" && req.query.date ? req.query.date : todayIST();
+  if (!isTradingDay(date)) {
+    res.status(409).json({ error: `${date} is not a trading day, nothing to sync` });
+    return;
+  }
   try {
-    const result = await runEodSyncJob();
+    const result = await runEodSyncJob(date);
     res.json(result);
   } catch (err) {
     console.error("[marketData] /sync/eod/test error:", err instanceof Error ? err.message : err);
@@ -480,9 +486,14 @@ router.post("/sync/eod/test", async (_req: Request, res: Response) => {
   }
 });
 
-router.post("/sync/intraday/test", async (_req: Request, res: Response) => {
+router.post("/sync/intraday/test", async (req: Request, res: Response) => {
+  const date = typeof req.query.date === "string" && req.query.date ? req.query.date : todayIST();
+  if (!isTradingDay(date)) {
+    res.status(409).json({ error: `${date} is not a trading day, nothing to sync` });
+    return;
+  }
   try {
-    const result = await runIntradaySyncJob();
+    const result = await runIntradaySyncJob(date);
     res.json(result);
   } catch (err) {
     console.error("[marketData] /sync/intraday/test error:", err instanceof Error ? err.message : err);
