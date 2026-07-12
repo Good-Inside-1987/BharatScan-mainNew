@@ -99,7 +99,7 @@ _None recorded yet_
 
 ## Setup status
 
-- Dependencies installed via `pnpm install`; both workflows ("Start application" on port 5000, "Backend API server" on port 3001) verified running.
+- Re-imported project set up on 2026-07-12: `pnpm install` run; `Backend API server` (port 3001) and `artifacts/bharatscan: web` (the frontend, managed as a Replit artifact) workflows verified running. The old standalone "Start application" workflow was removed in favor of the artifact-managed one.
 - Node.js module upgraded from `nodejs-20` to `nodejs-22` (via `.replit`) — required for `node:sqlite`, which needs Node.js v22.5+.
 - `electron/package.json`: `electron` devDependency bumped from `^31.7.7` to `^40.0.0` — Electron 31 bundles Node 20 (no `node:sqlite`); Electron 40 bundles Node 24. Fixed a stale `node_modules/.bin/tsx` path in `electron/main.js` (tsx only hoists into `server/node_modules/.bin`, not the root) while verifying this.
 - Running Electron locally in this container requires extra system libs (glib, nss, gtk3, dbus, libgbm, etc., installed via Nix) since Electron ships its own Chromium; there is no display server here so the window itself can't render, but the spawned Express backend (and thus `node:sqlite`) starts and serves correctly.
