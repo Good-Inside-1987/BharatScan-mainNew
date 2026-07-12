@@ -18,6 +18,7 @@ import { runOptionsSyncJob } from "./optionsDataService.js";
 import { runFoBanListJob } from "./foBanListService.js";
 import { runSupplementaryJob, runMfHoldingsJob } from "./supplementaryJobs.js";
 import { runCleanupJob } from "./cleanupJob.js";
+import { runStartupCatchUp, startPeriodicCatchUpCheck, getCatchUpStatus } from "./catchUpScheduler.js";
 
 let schedulerActive = false;
 
@@ -25,6 +26,15 @@ let schedulerActive = false;
 // not handled by a separate PM2 process (see config.runSchedulerInProcess).
 export function startScheduler(): void {
   if (!config.runSchedulerInProcess) return;
+
+  // Catch up on any missed trading days (server was asleep/offline, or a job
+  // silently failed) BEFORE the normal cron jobs are registered below, so a
+  // startup catch-up run never overlaps one about to fire at its normal time.
+  // Runs async — cron registration below does not wait on it.
+  void runStartupCatchUp().catch((err) => {
+    console.error("[scheduler] Startup catch-up failed:", err instanceof Error ? err.message : String(err));
+  });
+  startPeriodicCatchUpCheck();
 
   cron.schedule(
     config.syncSchedule.liveOpen,
@@ -196,6 +206,7 @@ export function getSchedulerStatus() {
     runSchedulerInProcess: config.runSchedulerInProcess,
     timezone: config.timezone,
     liveOptions: getAtmTrackerStatus(),
+    catchUp: getCatchUpStatus(),
     jobs: {
       liveOpen: {
         expression: config.syncSchedule.liveOpen,

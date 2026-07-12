@@ -1333,6 +1333,18 @@ export default function Settings() {
             </SectionCard>
           )}
 
+          {activeSection === "broker" && schedulerStatus?.catchUp?.active && (
+            <div className="flex items-center gap-2 rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400 shrink-0" />
+              <p className="text-[11px] text-amber-300">
+                Catching up {schedulerStatus.catchUp.jobName ?? "sync job"}
+                {schedulerStatus.catchUp.currentDate ? ` (${schedulerStatus.catchUp.currentDate})` : ""}:{" "}
+                {schedulerStatus.catchUp.completedCount} of {schedulerStatus.catchUp.totalCount} missed trading day
+                {schedulerStatus.catchUp.totalCount === 1 ? "" : "s"}
+              </p>
+            </div>
+          )}
+
           {activeSection === "broker" && (
             <SectionCard title="Live Feed Schedule" icon={Clock}>
               <div className="py-3 space-y-2">

@@ -118,9 +118,11 @@ export interface FoBanListResult {
   skipped?: boolean;
 }
 
-export async function runFoBanListJob(): Promise<FoBanListResult> {
-  const logId = startSyncLog("fo_ban_list");
-  const date = todayIST();
+export async function runFoBanListJob(
+  targetDate: string = todayIST()
+): Promise<FoBanListResult> {
+  const date = targetDate;
+  const logId = startSyncLog("fo_ban_list", date);
 
   try {
     const entries = await fetchBanListForDate(date);

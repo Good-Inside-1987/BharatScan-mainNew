@@ -454,9 +454,11 @@ export interface OptionsSyncStats {
  * cleanup after the fetch loop. Shares the same daily request budget as the
  * EOD/intraday jobs — if it's already exhausted, skips gracefully.
  */
-export async function runOptionsSyncJob(): Promise<OptionsSyncStats> {
-  const logId = startSyncLog("options_sync");
-  const date = todayIST();
+export async function runOptionsSyncJob(
+  targetDate: string = todayIST()
+): Promise<OptionsSyncStats> {
+  const date = targetDate;
+  const logId = startSyncLog("options_sync", date);
 
   try {
     const adapter = await getAuthenticatedAdapter();

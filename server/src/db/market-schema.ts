@@ -135,6 +135,10 @@ export function initMarketDb(db: DatabaseSync): void {
     );
 
     -- ── Sync job log ──────────────────────────────────────────────
+    -- target_date is the trading date (YYYY-MM-DD, IST) this run actually
+    -- processed — distinct from started_at, which is a wall-clock timestamp.
+    -- It lets the catch-up orchestrator (catchUpScheduler.ts) tell "ran but
+    -- for an old date" apart from "ran today", and find gaps precisely.
     CREATE TABLE IF NOT EXISTS sync_log (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       job_name       TEXT NOT NULL,
@@ -142,10 +146,14 @@ export function initMarketDb(db: DatabaseSync): void {
       finished_at    TEXT,
       status         TEXT,
       rows_processed INTEGER NOT NULL DEFAULT 0,
-      error_message  TEXT
+      error_message  TEXT,
+      target_date    TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_sync_log
       ON sync_log(job_name, started_at);
+    -- idx_sync_log_target_date is created in syncJobs.ts, AFTER the
+    -- idempotent ALTER TABLE that adds target_date to pre-existing DBs —
+    -- creating it here would fail on any DB from before this column existed.
 
     -- ── Backfill checkpoint (for resuming interrupted backfills) ───
     CREATE TABLE IF NOT EXISTS backfill_checkpoint (

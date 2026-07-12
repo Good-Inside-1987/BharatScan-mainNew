@@ -44,6 +44,12 @@ try {
 try {
   marketDb.exec(`ALTER TABLE sync_log ADD COLUMN symbols_failed INTEGER NOT NULL DEFAULT 0`);
 } catch { /* column already exists */ }
+try {
+  marketDb.exec(`ALTER TABLE sync_log ADD COLUMN target_date TEXT`);
+} catch { /* column already exists */ }
+try {
+  marketDb.exec(`CREATE INDEX IF NOT EXISTS idx_sync_log_target_date ON sync_log(job_name, target_date, status)`);
+} catch { /* index already exists */ }
 
 interface SyncLogRow {
   id: number;
@@ -58,15 +64,40 @@ interface SyncLogRow {
   symbols_failed: number;
 }
 
-export function startSyncLog(jobName: string): number {
+export function startSyncLog(jobName: string, targetDate: string = todayIST()): number {
   const startedAt = new Date().toISOString();
   const result = marketDb
     .prepare(
-      `INSERT INTO sync_log (job_name, started_at, status, rows_processed)
-       VALUES (?, ?, 'running', 0)`
+      `INSERT INTO sync_log (job_name, started_at, status, rows_processed, target_date)
+       VALUES (?, ?, 'running', 0, ?)`
     )
-    .run(jobName, startedAt);
+    .run(jobName, startedAt, targetDate);
   return Number(result.lastInsertRowid);
+}
+
+/**
+ * Most recent trading date (YYYY-MM-DD) this job successfully completed,
+ * or null if it has never completed successfully. Used by the catch-up
+ * orchestrator to find how far behind a job has fallen.
+ */
+export function getLastSuccessDate(jobName: string): string | null {
+  const row = marketDb
+    .prepare(
+      `SELECT MAX(target_date) AS maxDate FROM sync_log
+        WHERE job_name = ? AND status = 'completed' AND target_date IS NOT NULL`
+    )
+    .get(jobName) as unknown as { maxDate: string | null } | undefined;
+  return row?.maxDate ?? null;
+}
+
+/** True if `jobName` has a logged successful completion for exactly `date`. */
+export function hasSuccessfulRunForDate(jobName: string, date: string): boolean {
+  const row = marketDb
+    .prepare(
+      `SELECT 1 FROM sync_log WHERE job_name = ? AND target_date = ? AND status = 'completed' LIMIT 1`
+    )
+    .get(jobName, date);
+  return !!row;
 }
 
 export function finishSyncLog(
@@ -251,9 +282,11 @@ function isEodCovered(symbol: string, date: string): boolean {
  * (full NSE universe), resolution "1D". Applies retention (delete rows older
  * than config.eodRetentionYears) after the fetch loop.
  */
-export async function runEodSyncJob(): Promise<JobStats & { skippedNoAdapter?: boolean }> {
-  const logId = startSyncLog("eod_sync");
-  const date = todayIST();
+export async function runEodSyncJob(
+  targetDate: string = todayIST()
+): Promise<JobStats & { skippedNoAdapter?: boolean }> {
+  const date = targetDate;
+  const logId = startSyncLog("eod_sync", date);
 
   try {
     const adapter = await getAuthenticatedAdapter();
@@ -312,9 +345,11 @@ function isIntradayCovered(symbol: string, date: string): boolean {
  * retention (delete rows older than config.intradayRetentionMonths, or
  * never, when null) after the fetch loop.
  */
-export async function runIntradaySyncJob(): Promise<JobStats & { skippedNoAdapter?: boolean }> {
-  const logId = startSyncLog("intraday_sync");
-  const date = todayIST();
+export async function runIntradaySyncJob(
+  targetDate: string = todayIST()
+): Promise<JobStats & { skippedNoAdapter?: boolean }> {
+  const date = targetDate;
+  const logId = startSyncLog("intraday_sync", date);
 
   try {
     const adapter = await getAuthenticatedAdapter();

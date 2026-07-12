@@ -117,6 +117,16 @@ export const apiGetMarketQuotes = (symbols: string[]) =>
     `/market-data/quotes?symbols=${encodeURIComponent(symbols.join(","))}`
   );
 
+export interface ApiCatchUpStatus {
+  active: boolean;
+  jobName: string | null;
+  currentDate: string | null;
+  completedCount: number;
+  totalCount: number;
+  lastRunAt: string | null;
+  lastRunReason: "startup" | "periodic" | null;
+}
+
 export interface ApiSchedulerStatus {
   active: boolean;
   runSchedulerInProcess: boolean;
@@ -125,6 +135,7 @@ export interface ApiSchedulerStatus {
     liveOpen: { expression: string; nextRun: string | null };
     liveClose: { expression: string; nextRun: string | null };
   };
+  catchUp: ApiCatchUpStatus;
 }
 
 export const apiGetSchedulerStatus = () =>

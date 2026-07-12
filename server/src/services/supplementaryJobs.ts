@@ -290,9 +290,23 @@ export interface SupplementaryResult {
  * Fetches FII/DII activity and PE ratios for today. Both use the same NSE
  * session, so we obtain cookies once and reuse them for both calls.
  */
-export async function runSupplementaryJob(): Promise<SupplementaryResult> {
-  const logId = startSyncLog("supplementary");
-  const date = todayIST();
+/**
+ * targetDate lets the catch-up orchestrator re-run this job for a specific
+ * missed date. Note: the underlying NSE endpoints (fiidiiTradeReact,
+ * allIndices) only ever expose the current trading session's figures — they
+ * have no historical-date parameter — so a catch-up run still fetches
+ * "today's" live values from NSE, not a true historical value for
+ * `targetDate`. What catch-up buys here is retrying a same-day failure (the
+ * app stayed open, the job crashed, and we want another attempt at *today's*
+ * data) rather than reconstructing genuinely missed historical days, which
+ * this data source cannot provide. Rows are still logged/stored against
+ * `targetDate` so sync_log accurately reflects which date the attempt was for.
+ */
+export async function runSupplementaryJob(
+  targetDate: string = todayIST()
+): Promise<SupplementaryResult> {
+  const date = targetDate;
+  const logId = startSyncLog("supplementary", date);
 
   try {
     console.log("[supplementary] Obtaining NSE session …");

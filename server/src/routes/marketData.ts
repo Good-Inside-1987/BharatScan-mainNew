@@ -12,6 +12,7 @@ import {
 import { getSchedulerStatus } from "../services/scheduler.js";
 import { runEodSyncJob, runIntradaySyncJob } from "../services/syncJobs.js";
 import { runOptionsSyncJob } from "../services/optionsDataService.js";
+import { runPeriodicCatchUpCheck, runStartupCatchUp, getCatchUpStatus } from "../services/catchUpScheduler.js";
 import {
   AuthenticationError,
   SessionExpiredError,
@@ -496,6 +497,31 @@ router.post("/sync/options/test", async (_req: Request, res: Response) => {
   } catch (err) {
     console.error("[marketData] /sync/options/test error:", err instanceof Error ? err.message : err);
     res.status(500).json({ error: err instanceof Error ? err.message : "Options sync failed" });
+  }
+});
+
+/**
+ * TEMPORARY test routes for the catch-up/retry orchestrator — trigger either
+ * pass on demand instead of waiting for a restart or the 30-minute timer.
+ * Safe to remove once both triggers have been verified live.
+ */
+router.post("/sync/catch-up/check-now", async (_req: Request, res: Response) => {
+  try {
+    await runPeriodicCatchUpCheck();
+    res.json(getCatchUpStatus());
+  } catch (err) {
+    console.error("[marketData] /sync/catch-up/check-now error:", err instanceof Error ? err.message : err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Periodic catch-up check failed" });
+  }
+});
+
+router.post("/sync/catch-up/run-now", async (_req: Request, res: Response) => {
+  try {
+    await runStartupCatchUp();
+    res.json(getCatchUpStatus());
+  } catch (err) {
+    console.error("[marketData] /sync/catch-up/run-now error:", err instanceof Error ? err.message : err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Startup catch-up failed" });
   }
 });
 

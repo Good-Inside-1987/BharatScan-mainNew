@@ -1,0 +1,50 @@
+Currently, the nightly sync jobs (eod, intraday, options, foBanList, supplementary in
+server/src/services/syncJobs.ts, optionsDataService.ts, foBanListService.ts,
+supplementaryJobs.ts) all hardcode today's date when they run — if the app wasn't running at a
+job's scheduled time (vacation, laptop off, Repl asleep, etc.), or the job silently failed even
+though the app stayed running, that day's sync is permanently skipped with no way to recover
+automatically.
+
+1. Refactor runEodSyncJob, runIntradaySyncJob, and runOptionsSyncJob (and the F&O ban list /
+   supplementary jobs if structured similarly) to accept an optional target date parameter,
+   defaulting to today's IST date when not provided — so the exact same logic can be re-run for
+   any historical date, not just today.
+
+2. Build a catch-up orchestrator with two triggers:
+
+   A) On every server start (Replit reconnect, Oracle restart, Electron launch):
+      - For each job, check the sync_log table for the most recent successful completion date.
+      - Walk forward day by day from that date to today, skipping Saturdays/Sundays, and skipping
+        any date in nse_holidays if that table is populated (don't hard-fail if it's empty — just
+        skip weekends and let a holiday date fail gracefully with no data, same as today).
+      - For each missed weekday, run that job for that specific date, respecting the same shared
+        daily request budget as normal runs — if the budget runs out partway through a big
+        backlog, stop cleanly and pick up the rest on the next startup or next check.
+      - Run this catch-up BEFORE resuming normal scheduled cron jobs, so it doesn't collide with
+        one about to fire at its normal time.
+
+   B) Periodically during a continuously running session (e.g. every 30 minutes), independent of
+      restarts:
+      - For each job whose scheduled time has already passed today, check sync_log for a
+        successful completion logged for today's date.
+      - If a job's time has passed with no successful completion today, automatically retry it —
+        covers the case where the app stayed open all day but a job silently failed (network
+        blip, Fyers timeout, etc.) rather than the app being offline.
+      - Use the same shared daily budget and don't re-run a job that already completed
+        successfully today.
+
+3. Add a simple status indicator in the existing scheduler/backfill dashboard UI — e.g. "Catching
+   up: 3 of 12 missed trading days" — so it's clear why the app might be busier than usual after a
+   gap, or why a job is retrying, rather than looking stuck or broken.
+
+4. This must not touch the MF holdings monthly job's own idempotent monthly logic — leave that as
+   is; apply this catch-up/retry behavior only to the daily/nightly jobs (eod, intraday, options,
+   foBanList, supplementary).
+
+TEST: 
+- Simulate a multi-day gap by backdating a few rows in sync_log, restart the server, confirm the
+  startup catch-up detects and processes the missed days in order within the daily budget.
+- Simulate a same-day silent failure by manually marking today's EOD sync as failed in sync_log
+  while the server keeps running, and confirm the periodic check (don't wait the full 30 minutes —
+  a temporary test route to trigger the check on demand is fine) retries it without needing a
+  restart.

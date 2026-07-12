@@ -8,3 +8,4 @@
 - [Fyers option symbol parsing limitation](fyers-option-symbol-parsing.md) — weekly-expiry option symbols are digit-fused and unsafe to split; skip+log rather than misfile into equity table.
 - [Live feed F&O auto-subscribe & protected symbols](live-feed-fo-protection.md) — protected (auto F&O) symbols are never FIFO-evicted; ad-hoc adds get rejected instead, cleared nightly at market close.
 - [Nightly sync jobs share the backfill budget](nightly-sync-budget-sharing.md) — EOD/intraday jobs must check existing rows before spending shared budget; ohlcv tables key on Fyers-formatted symbols, not plain tickers.
+- [SQLite schema evolution](schema-evolution-sqlite.md) — put a new index on an ALTER-added column next to the ALTER, never in the initial CREATE-TABLE-IF-NOT-EXISTS block, or existing DBs crash on startup.
