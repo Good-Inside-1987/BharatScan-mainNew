@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { User, Palette, Bell, ScanSearch, Database, FileInput, Shield, HardDrive, ChevronRight, Moon, Sun, Monitor, Check, Download, Upload, Loader2, Trash2, Plug, PlugZap, RefreshCw, LogOut, Plus, ExternalLink, Clock } from "lucide-react";
+import { User, Palette, Bell, ScanSearch, Database, FileInput, Shield, HardDrive, ChevronRight, Moon, Sun, Monitor, Check, Download, Upload, Loader2, Trash2, Plug, PlugZap, RefreshCw, LogOut, Plus, ExternalLink, Clock, Camera, X } from "lucide-react";
 import { LineChart, Line, ResponsiveContainer, YAxis } from "recharts";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,34 @@ import {
   type ApiScan, type ApiSchedulerStatus, type ApiMarketStatus, type ApiQuoteCacheStats,
 } from "@/lib/api";
 import { toast } from "sonner";
+import { notifyProfileUpdated } from "@/hooks/useProfile";
+
+/** Downscale + compress an uploaded image client-side so the resulting base64 data URL
+ * comfortably fits the /settings API's per-value size cap. */
+async function resizeImageToDataUrl(file: File, maxSize = 160, quality = 0.82): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("Could not load image"));
+    el.src = dataUrl;
+  });
+  const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+  const w = Math.max(1, Math.round(img.width * scale));
+  const h = Math.max(1, Math.round(img.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.drawImage(img, 0, 0, w, h);
+  return canvas.toDataURL("image/jpeg", quality);
+}
 
 const SECTIONS = [
   { id: "profile", label: "Profile", icon: User },
@@ -151,6 +179,9 @@ export default function Settings() {
   const [profileName, setProfileName] = useState("Trader");
   const [profileEmail, setProfileEmail] = useState("trader@example.com");
   const [profileSaving, setProfileSaving] = useState(false);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // ── Notifications ──────────────────────────────────────────────────────────
   const [notifs, setNotifs] = useState({
@@ -217,6 +248,7 @@ export default function Settings() {
     apiGetSettings().then((s) => {
       if (s["profile:name"])          setProfileName(s["profile:name"]);
       if (s["profile:email"])         setProfileEmail(s["profile:email"]);
+      if (s["profile:photo"])         setProfilePhoto(s["profile:photo"]);
       if (s["scanner:defaultSeries"]) setScanner(p => ({ ...p, defaultSeries: s["scanner:defaultSeries"] }));
       if (s["scanner:defaultBacktest"]) setScanner(p => ({ ...p, defaultBacktest: s["scanner:defaultBacktest"] }));
       if (s["scanner:autoRefresh"])   setScanner(p => ({ ...p, autoRefresh: s["scanner:autoRefresh"] === "true" }));
@@ -238,6 +270,7 @@ export default function Settings() {
         apiSaveSetting("profile:name", profileName.trim() || "Trader"),
         apiSaveSetting("profile:email", profileEmail.trim()),
       ]);
+      notifyProfileUpdated();
       toast.success("Profile saved");
     } catch {
       toast.error("Failed to save profile");
@@ -245,6 +278,41 @@ export default function Settings() {
       setProfileSaving(false);
     }
   }, [profileName, profileEmail]);
+
+  // ── Upload / remove profile photo (auto-saves, shown live in the sidebar) ──
+  const handlePhotoSelected = useCallback(async (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file");
+      return;
+    }
+    setPhotoUploading(true);
+    try {
+      const dataUrl = await resizeImageToDataUrl(file);
+      await apiSaveSetting("profile:photo", dataUrl);
+      setProfilePhoto(dataUrl);
+      notifyProfileUpdated();
+      toast.success("Profile photo updated");
+    } catch {
+      toast.error("Failed to update profile photo");
+    } finally {
+      setPhotoUploading(false);
+    }
+  }, []);
+
+  const removePhoto = useCallback(async () => {
+    setPhotoUploading(true);
+    try {
+      await apiSaveSetting("profile:photo", "");
+      setProfilePhoto(null);
+      notifyProfileUpdated();
+      toast.success("Profile photo removed");
+    } catch {
+      toast.error("Failed to remove profile photo");
+    } finally {
+      setPhotoUploading(false);
+    }
+  }, []);
 
   // ── Toggle notification (auto-saves) ──────────────────────────────────────
   const toggleNotif = useCallback((key: keyof typeof notifs) => {
@@ -618,6 +686,39 @@ export default function Settings() {
           {/* Profile */}
           {activeSection === "profile" && (
             <SectionCard title="Profile Settings" icon={User}>
+              <SettingRow label="Profile Photo" description="Shown in the sidebar; falls back to your name's first letter">
+                <div className="flex items-center gap-3">
+                  {profilePhoto ? (
+                    <img src={profilePhoto} alt="Profile" className="h-12 w-12 rounded-full object-cover ring-1 ring-border" />
+                  ) : (
+                    <div className="h-12 w-12 rounded-full bg-gradient-primary text-primary-foreground flex items-center justify-center text-lg font-semibold ring-1 ring-border">
+                      {(profileName.trim().charAt(0) || "T").toUpperCase()}
+                    </div>
+                  )}
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      handlePhotoSelected(e.target.files?.[0] ?? null);
+                      e.target.value = "";
+                    }}
+                  />
+                  <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" disabled={photoUploading}
+                    onClick={() => photoInputRef.current?.click()}>
+                    {photoUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+                    Upload
+                  </Button>
+                  {profilePhoto && (
+                    <Button size="sm" variant="ghost" className="h-7 px-2.5 text-xs text-muted-foreground" disabled={photoUploading}
+                      onClick={removePhoto}>
+                      <X className="h-3.5 w-3.5" />
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              </SettingRow>
               <SettingRow label="Display Name" description="Name shown across the app">
                 <Input className="h-8 w-48 text-xs bg-input" value={profileName}
                   onChange={(e) => setProfileName(e.target.value)} />

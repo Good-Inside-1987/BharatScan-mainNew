@@ -31,13 +31,14 @@ router.post("/", (req: Request, res: Response) => {
     return;
   }
 
-  // Key max 100 chars, value max 10KB
+  // Key max 100 chars, value max 10KB (profile photo is a base64 data URL and gets a higher cap)
   if (key.length > 100) {
     res.status(400).json({ error: "key too long (max 100 characters)" });
     return;
   }
-  if (String(value).length > 10240) {
-    res.status(400).json({ error: "value too large (max 10KB)" });
+  const maxValueLength = key === "profile:photo" ? 307200 /* 300KB */ : 10240;
+  if (String(value).length > maxValueLength) {
+    res.status(400).json({ error: `value too large (max ${Math.round(maxValueLength / 1024)}KB)` });
     return;
   }
 

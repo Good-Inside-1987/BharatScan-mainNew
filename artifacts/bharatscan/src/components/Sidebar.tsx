@@ -12,8 +12,7 @@ import {
   Wallet,
   Plug,
 } from "lucide-react";
-import logoUrl from "@/assets/bharatscan-logo.png";
-import { useTheme } from "@/hooks/useTheme";
+import { useProfile } from "@/hooks/useProfile";
 
 const NAV_ITEMS = [
   { to: "/home", label: "Home", icon: Home },
@@ -29,26 +28,33 @@ const NAV_ITEMS = [
 ];
 
 export function Sidebar() {
-  const { theme } = useTheme();
+  const { name, photo } = useProfile();
+  const initial = name.trim().charAt(0).toUpperCase() || "T";
 
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-14 z-50 flex flex-col bg-card border-r border-border shadow-lg">
-      {/* Logo — height is synced to the main header's rendered height via
+      {/* User profile — height is synced to the main header's rendered height via
           --header-height (set in GlobalHeader) so the bottom border lines
           always match up, regardless of header content/wrapping. */}
       <div
-        className="flex items-center justify-center border-b border-border shrink-0"
+        className="flex flex-col items-center justify-center gap-1 border-b border-border shrink-0 px-1"
         style={{ height: "var(--header-height, 3.5rem)" }}
+        title={name}
       >
-        <img
-          src={logoUrl}
-          alt="BharatScan"
-          className={`h-7 w-7 object-contain transition-[filter] duration-300 ${
-            theme === "light"
-              ? "[filter:invert(1)_drop-shadow(0_0_4px_rgba(96,165,250,0.3))]"
-              : "[filter:drop-shadow(0_0_4px_rgba(96,165,250,0.2))]"
-          }`}
-        />
+        {photo ? (
+          <img
+            src={photo}
+            alt={name}
+            className="h-7 w-7 rounded-full object-cover shrink-0 ring-1 ring-border"
+          />
+        ) : (
+          <div className="h-7 w-7 rounded-full shrink-0 bg-gradient-primary text-primary-foreground flex items-center justify-center text-[11px] font-semibold ring-1 ring-border">
+            {initial}
+          </div>
+        )}
+        <span className="text-[8px] font-medium leading-none text-foreground/80 truncate max-w-full">
+          {name}
+        </span>
       </div>
 
       {/* Nav items */}
