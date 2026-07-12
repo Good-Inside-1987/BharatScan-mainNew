@@ -138,7 +138,7 @@ export interface NightlySyncJobStatus {
   errorMessage: string | null;
 }
 
-function lastRun(jobName: string): NightlySyncJobStatus {
+export function lastRun(jobName: string): NightlySyncJobStatus {
   const row = marketDb
     .prepare(
       `SELECT * FROM sync_log WHERE job_name = ? ORDER BY started_at DESC LIMIT 1`
@@ -175,6 +175,7 @@ export function getNightlySyncStatus() {
     eod: lastRun("eod_sync"),
     intraday: lastRun("intraday_sync"),
     options: lastRun("options_sync"),
+    symbolMaster: lastRun("symbol_master"),
   };
 }
 

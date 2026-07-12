@@ -367,9 +367,10 @@ export default function Settings() {
     return () => clearInterval(interval);
   }, [activeSection]);
 
-  // ── Backfill dashboard: load when broker section becomes active ───────────
+  // ── Backfill dashboard + Symbol Master status: load when broker or data
+  // section becomes active (Symbol Master card lives in "data") ─────────────
   useEffect(() => {
-    if (activeSection !== "broker") return;
+    if (activeSection !== "broker" && activeSection !== "data") return;
     const load = () => {
       setMarketStatusLoading(true);
       apiGetMarketStatus()
@@ -804,6 +805,42 @@ export default function Settings() {
                     {symbolRefreshing ? "Refreshing…" : "Refresh Now"}
                   </Button>
                 </SettingRow>
+                {marketStatus && (() => {
+                  const job = marketStatus.nightlySync.symbolMaster;
+                  return (
+                    <div className="flex items-center justify-between text-[10px] pt-1">
+                      <span className="text-muted-foreground">Last sync attempt</span>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={
+                            job.status === "completed"
+                              ? "text-emerald-400"
+                              : job.status === "failed"
+                              ? "text-red-400"
+                              : "text-muted-foreground"
+                          }
+                        >
+                          {job.status === "completed"
+                            ? `Succeeded — ${job.symbolsCompleted} upserted`
+                            : job.status === "failed"
+                            ? "Failed"
+                            : "Never run"}
+                        </span>
+                        {(job.finishedAt ?? job.startedAt) && (
+                          <span className="font-mono text-muted-foreground/70">
+                            {formatDate(job.finishedAt ?? job.startedAt)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {marketStatus?.nightlySync.symbolMaster.status === "failed" &&
+                  marketStatus.nightlySync.symbolMaster.errorMessage && (
+                    <p className="text-[10px] text-red-400 pt-1">
+                      {marketStatus.nightlySync.symbolMaster.errorMessage}
+                    </p>
+                  )}
               </SectionCard>
               <SectionCard title="CSV Format Settings" icon={Database}>
                 <SettingRow label="CSV Date Format" description="Date format in your NSE CSV files">

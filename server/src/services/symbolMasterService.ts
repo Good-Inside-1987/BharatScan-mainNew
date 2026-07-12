@@ -6,13 +6,18 @@
 // SAFE: only ever INSERTs or UPDATEs symbols — never drops or truncates the table.
 
 import { DatabaseSync } from "node:sqlite";
+import { startSyncLog, finishSyncLog } from "./syncJobs.js";
 
 // ── Source URLs ──────────────────────────────────────────────────────────────
 const FYERS_CM_URL = "https://public.fyers.in/sym_details/NSE_CM.csv";
 const FYERS_FO_URL = "https://public.fyers.in/sym_details/NSE_FO.csv";
 
-// NSE archives requires a browser-like User-Agent + Referer to avoid 503s.
-const NSE_HEADERS = {
+// NSE archives and Fyers' public static-file host both enforce bot
+// protection (403/503) against bare/non-browser requests — likely blocking
+// cloud/datacenter IPs. A browser-like User-Agent + Referer avoids that. No
+// longer NSE-specific, so used for both the NSE index fetches and the Fyers
+// CM/FO CSV fetches below.
+const BROWSER_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -63,7 +68,9 @@ const INSTR_TYPE_LABEL: Record<string, string> = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 async function fetchText(url: string, headers?: Record<string, string>): Promise<string> {
-  const res = await fetch(url, { headers });
+  // Fail fast on a hanging connection instead of blocking server startup
+  // indefinitely inside bootstrapSymbolMasterIfEmpty().
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
   return res.text();
 }
@@ -81,7 +88,7 @@ async function fetchNseIndexData(): Promise<{
 
   for (const idx of NSE_INDICES) {
     try {
-      const text  = await fetchText(idx.url, NSE_HEADERS);
+      const text  = await fetchText(idx.url, BROWSER_HEADERS);
       const lines = text.trim().split("\n");
       // Header: Company Name,Industry,Symbol,Series,ISIN Code
       for (let i = 1; i < lines.length; i++) {
@@ -120,13 +127,34 @@ export async function syncSymbolMaster(
 ): Promise<SymbolMasterResult> {
   console.log("[symbol-master] Starting sync …");
 
+  // Record this run in sync_log so a failure (e.g. Fyers/NSE returning 403)
+  // is visible in the Settings → Symbol Master card instead of only in
+  // server logs — same "last run status" pattern the nightly sync jobs use.
+  const logId = startSyncLog("symbol_master");
+
+  try {
+    const result = await runSync(marketDb);
+    finishSyncLog(logId, "completed", { completed: result.upserted, skippedBudget: 0, failed: 0 });
+    return result;
+  } catch (err) {
+    finishSyncLog(
+      logId,
+      "failed",
+      { completed: 0, skippedBudget: 0, failed: 0 },
+      err instanceof Error ? err.message : String(err),
+    );
+    throw err;
+  }
+}
+
+async function runSync(marketDb: DatabaseSync): Promise<SymbolMasterResult> {
   // 1. NSE index data (best-effort — won't abort if NSE is unreachable)
   const { indexMap, sectorMap } = await fetchNseIndexData();
 
   // 2. F&O underlyings — build a set of symbol names that have F&O contracts
   const foUnderlyings = new Set<string>();
   {
-    const foText  = await fetchText(FYERS_FO_URL);
+    const foText  = await fetchText(FYERS_FO_URL, BROWSER_HEADERS);
     const foLines = foText.trim().split("\n");
     for (const line of foLines) {
       const cols   = line.split(",");
@@ -137,7 +165,7 @@ export async function syncSymbolMaster(
   }
 
   // 3. CM symbol master — parse EQ instruments only
-  const cmText  = await fetchText(FYERS_CM_URL);
+  const cmText  = await fetchText(FYERS_CM_URL, BROWSER_HEADERS);
   const cmLines = cmText.trim().split("\n");
 
   const now = new Date().toISOString();
