@@ -271,7 +271,7 @@ export async function runEodSyncJob(): Promise<JobStats & { skippedNoAdapter?: b
     console.log(`[syncJobs] EOD sync starting — ${symbols.length} symbols for ${date}`);
     const stats = await runSymbolLoop(symbols, "1D", date, (s) => isEodCovered(s, date));
 
-    cleanupOldEodRows();
+    // Retention cleanup is handled centrally by cleanupJob.ts (6 PM IST).
 
     finishSyncLog(logId, "completed", stats);
     console.log(
@@ -338,7 +338,7 @@ export async function runIntradaySyncJob(): Promise<JobStats & { skippedNoAdapte
     );
     const stats = await runSymbolLoop(symbols, resolution, date, (s) => isIntradayCovered(s, date));
 
-    cleanupOldIntradayRows();
+    // Retention cleanup is handled centrally by cleanupJob.ts (6 PM IST).
 
     finishSyncLog(logId, "completed", stats);
     console.log(

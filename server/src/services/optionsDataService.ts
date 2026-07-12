@@ -510,7 +510,7 @@ export async function runOptionsSyncJob(): Promise<OptionsSyncStats> {
       }
     }
 
-    cleanupOldOptionsRows();
+    // Retention cleanup is handled centrally by cleanupJob.ts (6 PM IST).
 
     const stats = { completed, skippedBudget, failed };
     finishSyncLog(logId, "completed", stats);

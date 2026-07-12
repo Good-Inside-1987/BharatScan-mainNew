@@ -6,6 +6,9 @@ import { marketDb } from "../db.js";
 import { syncSymbolMaster } from "./symbolMasterService.js";
 import { runEodSyncJob, runIntradaySyncJob } from "./syncJobs.js";
 import { runOptionsSyncJob } from "./optionsDataService.js";
+import { runFoBanListJob } from "./foBanListService.js";
+import { runSupplementaryJob, runMfHoldingsJob } from "./supplementaryJobs.js";
+import { runCleanupJob } from "./cleanupJob.js";
 
 let schedulerActive = false;
 
@@ -94,6 +97,58 @@ export function startScheduler(): void {
     { timezone: config.timezone }
   );
 
+  // F&O ban list — 8:30 AM IST (before market open). Fetches NSE's daily list
+  // of securities banned from fresh F&O positions due to MWPL breach.
+  cron.schedule(
+    config.syncSchedule.foBanList,
+    () => {
+      console.log("[scheduler] Running scheduled F&O ban list fetch …");
+      void runFoBanListJob().catch((err) => {
+        console.error("[scheduler] F&O ban list failed:", err instanceof Error ? err.message : String(err));
+      });
+    },
+    { timezone: config.timezone }
+  );
+
+  // Supplementary data — 5:30 PM IST. FII/DII daily activity + PE/PB/DivYield
+  // for major indices, both from NSE.
+  cron.schedule(
+    config.syncSchedule.supplementary,
+    () => {
+      console.log("[scheduler] Running scheduled supplementary sync (FII/DII + PE) …");
+      void runSupplementaryJob().catch((err) => {
+        console.error("[scheduler] Supplementary sync failed:", err instanceof Error ? err.message : String(err));
+      });
+    },
+    { timezone: config.timezone }
+  );
+
+  // MF holdings — 5th of each month at 5:00 PM IST. Fetches AMFI's monthly
+  // portfolio disclosure for the previous month (idempotent — safe to re-run).
+  cron.schedule(
+    config.syncSchedule.mfHoldings,
+    () => {
+      console.log("[scheduler] Running scheduled MF holdings sync …");
+      void runMfHoldingsJob().catch((err) => {
+        console.error("[scheduler] MF holdings sync failed:", err instanceof Error ? err.message : String(err));
+      });
+    },
+    { timezone: config.timezone }
+  );
+
+  // Nightly cleanup — 6:00 PM IST. Single pass that enforces retention windows
+  // across all tables. This is the only place retention deletes happen.
+  cron.schedule(
+    config.syncSchedule.cleanup,
+    () => {
+      console.log("[scheduler] Running scheduled nightly cleanup …");
+      void runCleanupJob().catch((err) => {
+        console.error("[scheduler] Cleanup failed:", err instanceof Error ? err.message : String(err));
+      });
+    },
+    { timezone: config.timezone }
+  );
+
   schedulerActive = true;
 }
 
@@ -135,6 +190,22 @@ export function getSchedulerStatus() {
       options: {
         expression: config.syncSchedule.options,
         nextRun: schedulerActive ? nextFireTime(config.syncSchedule.options) : null,
+      },
+      foBanList: {
+        expression: config.syncSchedule.foBanList,
+        nextRun: schedulerActive ? nextFireTime(config.syncSchedule.foBanList) : null,
+      },
+      supplementary: {
+        expression: config.syncSchedule.supplementary,
+        nextRun: schedulerActive ? nextFireTime(config.syncSchedule.supplementary) : null,
+      },
+      mfHoldings: {
+        expression: config.syncSchedule.mfHoldings,
+        nextRun: schedulerActive ? nextFireTime(config.syncSchedule.mfHoldings) : null,
+      },
+      cleanup: {
+        expression: config.syncSchedule.cleanup,
+        nextRun: schedulerActive ? nextFireTime(config.syncSchedule.cleanup) : null,
       },
     },
   };

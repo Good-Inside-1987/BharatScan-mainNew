@@ -1,0 +1,29 @@
+Build the three remaining scheduled jobs in server/src/services/scheduler.ts using their existing
+cron times in config.syncSchedule:
+
+1. FOBANLIST JOB (8:30am, before market open): fetch that day's F&O ban list (stocks currently
+   banned from taking fresh F&O positions due to exceeding open interest limits — check Fyers'
+   API docs, or NSE's own published ban list, for the correct current source) and store it
+   somewhere queryable (a small "fo_ban_list" table with date + symbol is fine) so the Scanner
+   and Options Analysis pages can flag/exclude banned stocks.
+
+2. SUPPLEMENTARY JOB (5:30pm): fetch and store FII/DII daily trading activity, PE ratios for
+   major indices, and (separately, monthly, using config.syncSchedule.mfHoldings — 5th of each
+   month at 5pm) mutual fund holdings data. Check what source(s) the app's existing code already
+   references for these (search for any existing "fii", "dii", "peRatio", or "mfHoldings"
+   references in server/src before building from scratch — reuse what's already there if
+   anything exists). Apply retention per config.fiiDiiRetentionYears, config.peRatioRetentionYears,
+   and config.mfHoldingsRetentionYears (all differ between Replit and Oracle/local per the values
+   already in environment.ts).
+
+3. CLEANUP JOB (6pm): a single job that enforces every retention rule across all tables mentioned
+   in prior prompts (ohlcv_daily, ohlcv_intraday, options_intraday, fo_ban_list if not already
+   handled, fii/dii, pe ratios, mf holdings) — delete rows older than each table's configured
+   retention window. This can absorb any retention-deletion logic already added ad-hoc in
+   Prompts 6/7 if it makes the code cleaner to centralize it here instead — use your judgment on
+   what's cleanest, just make sure retention is enforced exactly once per table, not duplicated
+   or skipped.
+
+TEST: manually trigger each job, confirm no errors, and confirm the cleanup job actually deletes
+rows older than the configured retention window for at least one table (e.g. insert an
+artificially old test row into ohlcv_daily, run cleanup, confirm it's gone).
