@@ -1163,7 +1163,7 @@ export default function StrategiesBacktest() {
                 </SelectTrigger>
                 <SelectContent>
                   {scanMode === "stocks" && (
-                    <SelectItem value={ALL_UNIVERSE_ID}>All CSV Stocks{histories.length ? ` (${histories.length})` : ""}</SelectItem>
+                    <SelectItem value={ALL_UNIVERSE_ID}>All Loaded Stocks{histories.length ? ` (${histories.length})` : ""}</SelectItem>
                   )}
                   {visibleCategories.map(c => (
                     <SelectItem key={c.id} value={c.id}>{c.name}{c.symbols.length ? ` (${c.symbols.length})` : ""}</SelectItem>

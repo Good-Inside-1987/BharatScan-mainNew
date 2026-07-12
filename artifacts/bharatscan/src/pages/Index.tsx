@@ -242,7 +242,7 @@ const Index = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanMode, categories, visibleCategories]);
 
-  // Resolve the currently-selected universe category (null = "All CSV Stocks").
+  // Resolve the currently-selected universe category (null = "All Loaded Stocks").
   const activeCategory = useMemo<UniverseCategory | null>(() => {
     if (universeId === ALL_UNIVERSE_ID) return null;
     return categories.find((c) => c.id === universeId) ?? null;
@@ -640,7 +640,7 @@ const Index = () => {
 
           {/* Mode + Universe in a single row.
               Mode = Stocks | Options. Universe = dropdown of categories
-              loaded from the All Watchlist CSV (plus an "All CSV Stocks"
+              loaded from the All Watchlist CSV (plus an "All Loaded Stocks"
               entry that means "every loaded equity"). */}
           <div className="flex flex-wrap items-center gap-2 mb-2 py-0.5 pr-1 pl-3 rounded-lg border border-border bg-secondary/30">
             <span className="text-xs text-muted-foreground font-medium pr-1">Mode:</span>
@@ -673,11 +673,11 @@ const Index = () => {
                 <SelectValue placeholder="Pick a universe…" />
               </SelectTrigger>
               <SelectContent>
-                {/* "All CSV Stocks" is only meaningful in Stocks mode — Options
+                {/* "All Loaded Stocks" is only meaningful in Stocks mode — Options
                     scans need an underlying list (Nifty Indices/Nifty50/Futures). */}
                 {scanMode === "stocks" && (
                   <SelectItem value={ALL_UNIVERSE_ID}>
-                    All CSV Stocks{histories.length ? ` (${histories.length})` : ""}
+                    All Loaded Stocks{histories.length ? ` (${histories.length})` : ""}
                   </SelectItem>
                 )}
                 {visibleCategories.map((c) => (

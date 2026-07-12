@@ -448,7 +448,7 @@ function EditScanModal({
                 <SelectContent>
                   {scanMode === "stocks" && (
                     <SelectItem value={ALL_UNIVERSE_ID}>
-                      All CSV Stocks{histories.length ? ` (${histories.length})` : ""}
+                      All Loaded Stocks{histories.length ? ` (${histories.length})` : ""}
                     </SelectItem>
                   )}
                   {visibleCategories.map((c: UniverseCategory) => (
