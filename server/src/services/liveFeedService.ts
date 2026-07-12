@@ -36,7 +36,7 @@ import { decrypt } from "../lib/encryption.js";
 import type { Quote } from "../adapters/types.js";
 
 const FYERS_DATA_WS_URL = "wss://api.fyers.in/socket/v2/data/";
-const MAX_SUBSCRIBED_SYMBOLS = 200;
+export const MAX_SUBSCRIBED_SYMBOLS = 200;
 
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 60_000;

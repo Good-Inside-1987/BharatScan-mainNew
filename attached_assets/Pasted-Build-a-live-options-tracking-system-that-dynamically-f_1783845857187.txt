@@ -1,0 +1,39 @@
+Build a live options tracking system that dynamically follows the ATM strike as the underlying
+price moves during the day, similar in spirit to the existing F&O stock auto-subscribe (Prompt 5)
+but for options contracts specifically, reusing the existing 1-min candle persistence
+(upsertOptionsCandle) already built in liveFeedService.ts.
+
+1. Reserve a portion of the existing 200-symbol live feed budget specifically for option
+   contracts, separate from the F&O stocks slots. Reduce the F&O stock auto-subscribe count
+   (currently up to 200) to make room — e.g. track ATM ± 5 strikes (both CE and PE = 22 contracts
+   per index) for each underlying in config.optionsIndices. On Replit (2 indices: NIFTY, SENSEX)
+   that's ~44 contracts; on Oracle/local (5 indices) that's ~110 contracts. Reduce the F&O stock
+   count so the combined total never exceeds 200. Make the ATM window size (currently proposing
+   ±5) a named constant so it's easy to tune later.
+
+2. At market open (in the existing liveOpen job), after auto-subscribing F&O stocks, also:
+   a. Fetch each configured index's current spot price
+   b. Determine the ATM strike and construct the option symbols for ATM ± the reserved window,
+      both CE and PE, using the existing option-symbol construction logic already in
+      server/src/adapters/fyers.ts / optionsDataService.ts
+   c. Subscribe these to the live feed, marked "protected" the same way F&O stocks are
+
+3. Track each index's ATM strike, and periodically (e.g. every 2-3 minutes, or whenever a new spot
+   tick arrives for that index) recompute it. If the ATM strike has moved enough that the window
+   would now include different strikes:
+   a. Unsubscribe the option contracts that have fallen outside the new window
+   b. Subscribe the newly-included ones, keeping them protected
+   c. Log each roll (old ATM → new ATM, strikes added/removed) so this is easy to verify while
+      testing
+
+4. At market close (liveClose), clear these protected option subscriptions the same way F&O stock
+   protection gets cleared, so tomorrow rebuilds fresh.
+
+5. Persist ticks into options_intraday using the existing upsertOptionsCandle logic already built
+   — no changes needed there, just make sure the new dynamic subscriptions feed into it the same
+   way F&O stock ticks already do.
+
+TEST: during market hours (or simulate if closed), confirm option contracts around the current ATM
+get subscribed, confirm that after the underlying price moves enough to shift the ATM strike, the
+subscribed contract list actually rolls (old strikes dropped, new ones added) rather than staying
+static all day, and confirm combined stock + option subscriptions never exceed 200.

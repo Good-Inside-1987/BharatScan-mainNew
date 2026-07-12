@@ -2,6 +2,15 @@ import cron from "node-cron";
 import { CronExpressionParser } from "cron-parser";
 import { config } from "../config/environment.js";
 import { connect, disconnect, autoSubscribeFoSymbols, clearProtectedSymbols } from "./liveFeedService.js";
+import {
+  initAtmOptionSubscriptions,
+  startAtmRollTracking,
+  stopAtmRollTracking,
+  getAtmTrackerStatus,
+  FO_STOCKS_BUDGET,
+  OPTIONS_LIVE_BUDGET,
+  ATM_WINDOW,
+} from "./liveOptionsTracker.js";
 import { marketDb } from "../db.js";
 import { syncSymbolMaster } from "./symbolMasterService.js";
 import { runEodSyncJob, runIntradaySyncJob } from "./syncJobs.js";
@@ -20,12 +29,28 @@ export function startScheduler(): void {
   cron.schedule(
     config.syncSchedule.liveOpen,
     () => {
-      void connect().then(() => {
+      console.log(
+        "[scheduler] Market open — live feed budget: %d F&O stocks + %d options slots (ATM ±%d, %d indices)",
+        FO_STOCKS_BUDGET, OPTIONS_LIVE_BUDGET, ATM_WINDOW, config.optionsIndices.length
+      );
+      void connect().then(async () => {
+        // ── Step 1: F&O stock auto-subscribe (reduced limit to make room for options) ──
         try {
-          autoSubscribeFoSymbols();
+          autoSubscribeFoSymbols(FO_STOCKS_BUDGET);
         } catch (err) {
           console.error(
             "[scheduler] F&O auto-subscribe failed:",
+            err instanceof Error ? err.message : String(err)
+          );
+        }
+
+        // ── Step 2: ATM option subscriptions (per configured index, ±ATM_WINDOW) ──
+        try {
+          await initAtmOptionSubscriptions();
+          startAtmRollTracking();
+        } catch (err) {
+          console.error(
+            "[scheduler] ATM option subscriptions failed:",
             err instanceof Error ? err.message : String(err)
           );
         }
@@ -37,10 +62,14 @@ export function startScheduler(): void {
   cron.schedule(
     config.syncSchedule.liveClose,
     () => {
+      // Stop ATM roll timer and unsubscribe all tracked option contracts +
+      // index spot symbols first, then disconnect and clear protection flags.
+      // This gives each option contract's partial candle a chance to be
+      // finalised (SubscriptionManager.remove() calls finalizeCandle) before
+      // the WS connection drops.
+      stopAtmRollTracking();
       disconnect();
-      // Clear protection flags (not the connection state) so tomorrow's
-      // liveOpen job rebuilds the F&O list fresh instead of treating
-      // today's ranking as still pinned.
+      // Clear protection flags so tomorrow's liveOpen rebuilds fresh.
       clearProtectedSymbols();
     },
     { timezone: config.timezone }
@@ -166,6 +195,7 @@ export function getSchedulerStatus() {
     active: schedulerActive,
     runSchedulerInProcess: config.runSchedulerInProcess,
     timezone: config.timezone,
+    liveOptions: getAtmTrackerStatus(),
     jobs: {
       liveOpen: {
         expression: config.syncSchedule.liveOpen,
