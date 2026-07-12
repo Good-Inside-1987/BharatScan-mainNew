@@ -11,6 +11,7 @@ import {
 } from "../services/liveFeedService.js";
 import { getSchedulerStatus } from "../services/scheduler.js";
 import { runEodSyncJob, runIntradaySyncJob } from "../services/syncJobs.js";
+import { runOptionsSyncJob } from "../services/optionsDataService.js";
 import {
   AuthenticationError,
   SessionExpiredError,
@@ -357,6 +358,16 @@ router.post("/sync/intraday/test", async (_req: Request, res: Response) => {
   } catch (err) {
     console.error("[marketData] /sync/intraday/test error:", err instanceof Error ? err.message : err);
     res.status(500).json({ error: err instanceof Error ? err.message : "Intraday sync failed" });
+  }
+});
+
+router.post("/sync/options/test", async (_req: Request, res: Response) => {
+  try {
+    const result = await runOptionsSyncJob();
+    res.json(result);
+  } catch (err) {
+    console.error("[marketData] /sync/options/test error:", err instanceof Error ? err.message : err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Options sync failed" });
   }
 });
 

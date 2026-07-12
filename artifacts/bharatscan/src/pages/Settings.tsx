@@ -1471,6 +1471,7 @@ export default function Settings() {
                     {[
                       { label: "EOD Sync (4:00 PM IST)", job: marketStatus.nightlySync.eod },
                       { label: "Intraday Sync (4:30 PM IST)", job: marketStatus.nightlySync.intraday },
+                      { label: "Options Sync (5:00 PM IST)", job: marketStatus.nightlySync.options },
                     ].map(({ label, job }) => (
                       <div key={job.jobName} className="pb-2 border-b border-border/20 last:border-0 last:pb-0 space-y-1">
                         <div className="flex items-center justify-between text-[10px]">

@@ -5,6 +5,7 @@ import { connect, disconnect, autoSubscribeFoSymbols, clearProtectedSymbols } fr
 import { marketDb } from "../db.js";
 import { syncSymbolMaster } from "./symbolMasterService.js";
 import { runEodSyncJob, runIntradaySyncJob } from "./syncJobs.js";
+import { runOptionsSyncJob } from "./optionsDataService.js";
 
 let schedulerActive = false;
 
@@ -80,6 +81,19 @@ export function startScheduler(): void {
     { timezone: config.timezone }
   );
 
+  // Nightly options sync — 5:00 PM IST, ATM ± range CE/PE for configured
+  // indices (and F&O stocks when config.includeStockOptions is true).
+  cron.schedule(
+    config.syncSchedule.options,
+    () => {
+      console.log("[scheduler] Running scheduled options sync …");
+      void runOptionsSyncJob().catch((err) => {
+        console.error("[scheduler] Options sync failed:", err instanceof Error ? err.message : String(err));
+      });
+    },
+    { timezone: config.timezone }
+  );
+
   schedulerActive = true;
 }
 
@@ -117,6 +131,10 @@ export function getSchedulerStatus() {
       intraday: {
         expression: config.syncSchedule.intraday,
         nextRun: schedulerActive ? nextFireTime(config.syncSchedule.intraday) : null,
+      },
+      options: {
+        expression: config.syncSchedule.options,
+        nextRun: schedulerActive ? nextFireTime(config.syncSchedule.options) : null,
       },
     },
   };

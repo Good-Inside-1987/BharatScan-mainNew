@@ -28,7 +28,7 @@ function toFyersSymbol(symbol: string): string {
   return `NSE:${s}-EQ`;
 }
 
-function todayIST(): string {
+export function todayIST(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: config.timezone });
 }
 
@@ -58,7 +58,7 @@ interface SyncLogRow {
   symbols_failed: number;
 }
 
-function startSyncLog(jobName: string): number {
+export function startSyncLog(jobName: string): number {
   const startedAt = new Date().toISOString();
   const result = marketDb
     .prepare(
@@ -69,7 +69,7 @@ function startSyncLog(jobName: string): number {
   return Number(result.lastInsertRowid);
 }
 
-function finishSyncLog(
+export function finishSyncLog(
   id: number,
   status: "completed" | "failed",
   stats: { completed: number; skippedBudget: number; failed: number },
@@ -143,6 +143,7 @@ export function getNightlySyncStatus() {
   return {
     eod: lastRun("eod_sync"),
     intraday: lastRun("intraday_sync"),
+    options: lastRun("options_sync"),
   };
 }
 

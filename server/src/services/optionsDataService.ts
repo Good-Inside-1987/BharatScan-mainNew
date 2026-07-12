@@ -13,8 +13,9 @@
 
 import { marketDb } from "../db.js";
 import { config } from "../config/environment.js";
-import { getAuthenticatedAdapter, throttleCall, checkAndConsumeBudget } from "./marketDataService.js";
-import type { Bar } from "../adapters/types.js";
+import { getAuthenticatedAdapter, throttleCall, checkAndConsumeBudget, getServiceStats } from "./marketDataService.js";
+import { startSyncLog, finishSyncLog, todayIST } from "./syncJobs.js";
+import type { Bar, BrokerAdapter } from "../adapters/types.js";
 
 // ── Underlying → Fyers index symbol ──────────────────────────────────────────
 // Used when calling getOptionChain / getOptionExpiries on the adapter.
@@ -37,6 +38,17 @@ function strikeRange(underlying: string): number {
   return isIndex(underlying)
     ? config.indexOptionsStrikeRange   // 30 for indices
     : config.stockOptionsStrikeRange;  // 20 for stocks
+}
+
+/**
+ * Resolves an underlying name to the broker symbol used for option-chain /
+ * expiry lookups. Indices use the fixed Fyers index-symbol map; F&O-eligible
+ * stocks use the same "NSE:{SYMBOL}-EQ" convention used everywhere else for
+ * equities (dataLoader.ts's toFyersSymbol / syncJobs.ts's toFyersSymbol).
+ */
+function underlyingFyersSymbol(underlying: string): string {
+  const uName = underlying.toUpperCase();
+  return UNDERLYING_TO_FYERS[uName] ?? `NSE:${uName}-EQ`;
 }
 
 // ── options_intraday upsert ───────────────────────────────────────────────────
@@ -262,4 +274,255 @@ export async function loadOptionsFromBroker(
   );
 
   return { loaded, skippedBudget, failed };
+}
+
+// ── Nightly options sync job (5:00 PM IST) ───────────────────────────────────
+//
+// Draws from the SAME shared daily request budget as the EOD/intraday jobs
+// (via checkAndConsumeBudget) — no separate counter. If the budget is already
+// exhausted by the time this job runs, it skips gracefully and logs rather
+// than erroring.
+
+interface UnderlyingSyncResult {
+  completed: number;
+  failed: number;
+  budgetExhausted: boolean;
+}
+
+/** Nearest expiry on/after `date` (YYYY-MM-DD); falls back to the last known expiry. */
+function pickNearestExpiry(expiries: string[], date: string): string | null {
+  if (expiries.length === 0) return null;
+  const sorted = [...expiries].sort();
+  return sorted.find((e) => e >= date) ?? sorted[sorted.length - 1];
+}
+
+async function syncOptionsForUnderlying(
+  adapter: BrokerAdapter,
+  underlying: string,
+  date: string
+): Promise<UnderlyingSyncResult> {
+  const uName = underlying.toUpperCase();
+  const fyersSymbol = underlyingFyersSymbol(uName);
+
+  const anyAdapter = adapter as unknown as Record<string, unknown>;
+  if (typeof anyAdapter.getOptionExpiries !== "function") {
+    console.warn("[optionsDataService] Connected broker has no option-expiry lookup — skipping %s", uName);
+    return { completed: 0, failed: 0, budgetExhausted: false };
+  }
+
+  let expiries: string[];
+  try {
+    const getExpiries = anyAdapter.getOptionExpiries as (s: string) => Promise<string[]>;
+    expiries = await getExpiries.call(adapter, fyersSymbol);
+  } catch (err) {
+    console.error("[optionsDataService] Failed to fetch expiries for %s: %s", uName, err instanceof Error ? err.message : String(err));
+    return { completed: 0, failed: 1, budgetExhausted: false };
+  }
+
+  const expiry = pickNearestExpiry(expiries, date);
+  if (!expiry) {
+    console.warn("[optionsDataService] No expiries returned for %s — skipping", uName);
+    return { completed: 0, failed: 0, budgetExhausted: false };
+  }
+
+  let chain;
+  try {
+    chain = await adapter.getOptionChain(fyersSymbol, expiry);
+  } catch (err) {
+    console.error("[optionsDataService] Failed to fetch option chain for %s %s: %s", uName, expiry, err instanceof Error ? err.message : String(err));
+    return { completed: 0, failed: 1, budgetExhausted: false };
+  }
+
+  const spot = chain.spotPrice;
+  if (!spot || spot <= 0) {
+    console.warn("[optionsDataService] No spot price for %s — skipping", uName);
+    return { completed: 0, failed: 0, budgetExhausted: false };
+  }
+
+  const range = strikeRange(uName);
+  let atmIdx = 0;
+  let minDist = Infinity;
+  chain.strikes.forEach((s, idx) => {
+    const d = Math.abs(s.strike - spot);
+    if (d < minDist) { minDist = d; atmIdx = idx; }
+  });
+
+  const lo = Math.max(0, atmIdx - range);
+  const hi = Math.min(chain.strikes.length - 1, atmIdx + range);
+  const candidates = chain.strikes.slice(lo, hi + 1);
+
+  const items: Array<{ symbol: string; strike: number; type: "CE" | "PE" }> = [];
+  for (const s of candidates) {
+    if (s.ceSymbol) items.push({ symbol: s.ceSymbol, strike: s.strike, type: "CE" });
+    if (s.peSymbol) items.push({ symbol: s.peSymbol, strike: s.strike, type: "PE" });
+  }
+
+  if (items.length === 0) {
+    console.warn("[optionsDataService] No option symbols in chain for %s %s — skipping", uName, expiry);
+    return { completed: 0, failed: 0, budgetExhausted: false };
+  }
+
+  console.log(
+    "[optionsDataService] Nightly sync: %d contracts for %s %s (ATM=%d spot=%.2f range=±%d)",
+    items.length, uName, expiry, chain.strikes[atmIdx]?.strike ?? 0, spot, range
+  );
+
+  let completed = 0;
+  let failed = 0;
+  let budgetExhausted = false;
+
+  for (const item of items) {
+    if (!checkAndConsumeBudget()) {
+      budgetExhausted = true;
+      break;
+    }
+    try {
+      const bars = await throttleCall(() => adapter.getHistoricalData(item.symbol, "1", date, date));
+      upsertOptionsBars(uName, expiry, item.strike, item.type, bars);
+      completed++;
+    } catch (err) {
+      failed++;
+      console.error("[optionsDataService] ✗ %s: %s", item.symbol, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return { completed, failed, budgetExhausted };
+}
+
+function monthsAgoIso(months: number): string {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - months);
+  return cutoff.toISOString();
+}
+
+/**
+ * Retention cleanup for options_intraday, split by index vs. stock
+ * underlying since they have separate retention windows. A retention of 0
+ * months means "don't keep any" — delete everything in that bucket.
+ */
+function cleanupOldOptionsRows(): void {
+  const indexNames = Object.keys(UNDERLYING_TO_FYERS);
+  const placeholders = indexNames.map(() => "?").join(",");
+
+  if (config.indexOptionsRetentionMonths <= 0) {
+    const result = marketDb
+      .prepare(`DELETE FROM options_intraday WHERE underlying IN (${placeholders})`)
+      .run(...indexNames);
+    if (Number(result.changes) > 0) {
+      console.log(`[optionsDataService] Index options cleanup: removed all ${result.changes} rows (0-month retention)`);
+    }
+  } else {
+    const cutoff = monthsAgoIso(config.indexOptionsRetentionMonths);
+    const result = marketDb
+      .prepare(`DELETE FROM options_intraday WHERE underlying IN (${placeholders}) AND timestamp < ?`)
+      .run(...indexNames, cutoff);
+    if (Number(result.changes) > 0) {
+      console.log(`[optionsDataService] Index options cleanup: removed ${result.changes} rows older than ${cutoff}`);
+    }
+  }
+
+  if (config.stockOptionsRetentionMonths <= 0) {
+    const result = marketDb
+      .prepare(`DELETE FROM options_intraday WHERE underlying NOT IN (${placeholders})`)
+      .run(...indexNames);
+    if (Number(result.changes) > 0) {
+      console.log(`[optionsDataService] Stock options cleanup: removed all ${result.changes} rows (0-month retention)`);
+    }
+  } else {
+    const cutoff = monthsAgoIso(config.stockOptionsRetentionMonths);
+    const result = marketDb
+      .prepare(`DELETE FROM options_intraday WHERE underlying NOT IN (${placeholders}) AND timestamp < ?`)
+      .run(...indexNames, cutoff);
+    if (Number(result.changes) > 0) {
+      console.log(`[optionsDataService] Stock options cleanup: removed ${result.changes} rows older than ${cutoff}`);
+    }
+  }
+}
+
+export interface OptionsSyncStats {
+  completed: number;
+  failed: number;
+  skippedBudget: number;
+  skippedNoAdapter?: boolean;
+}
+
+/**
+ * Nightly options sync — for each configured index (config.optionsIndices)
+ * and, when config.includeStockOptions is true, every F&O-eligible stock:
+ * fetches today's ATM ± range 1-min option candles (CE + PE) for the
+ * nearest expiry and upserts into options_intraday. Applies retention
+ * cleanup after the fetch loop. Shares the same daily request budget as the
+ * EOD/intraday jobs — if it's already exhausted, skips gracefully.
+ */
+export async function runOptionsSyncJob(): Promise<OptionsSyncStats> {
+  const logId = startSyncLog("options_sync");
+  const date = todayIST();
+
+  try {
+    const adapter = await getAuthenticatedAdapter();
+    if (!adapter) {
+      console.warn("[optionsDataService] Nightly options sync skipped — no broker connected");
+      finishSyncLog(logId, "failed", { completed: 0, skippedBudget: 0, failed: 0 }, "No broker connected");
+      return { completed: 0, failed: 0, skippedBudget: 0, skippedNoAdapter: true };
+    }
+
+    if (getServiceStats().remainingBudgetToday <= 0) {
+      console.warn("[optionsDataService] Nightly options sync skipped — daily request budget already exhausted");
+      finishSyncLog(logId, "completed", { completed: 0, skippedBudget: 0, failed: 0 }, "Daily request budget already exhausted");
+      return { completed: 0, failed: 0, skippedBudget: 0 };
+    }
+
+    const underlyings: string[] = [...config.optionsIndices];
+    if (config.includeStockOptions) {
+      const stockRows = marketDb
+        .prepare(`SELECT symbol FROM symbols WHERE is_delisted = 0 AND is_fo_eligible = 1`)
+        .all() as unknown as Array<{ symbol: string }>;
+      underlyings.push(...stockRows.map((r) => r.symbol));
+    }
+
+    console.log(
+      "[optionsDataService] Nightly options sync starting — %d underlyings for %s (stocks included: %s)",
+      underlyings.length, date, config.includeStockOptions
+    );
+
+    let completed = 0;
+    let failed = 0;
+    let skippedBudget = 0;
+    let budgetExhausted = false;
+
+    for (const underlying of underlyings) {
+      if (budgetExhausted) {
+        skippedBudget++;
+        console.log("[optionsDataService] Skipping %s — daily request budget already exhausted", underlying);
+        continue;
+      }
+
+      const result = await syncOptionsForUnderlying(adapter, underlying, date);
+      completed += result.completed;
+      failed += result.failed;
+      if (result.budgetExhausted) {
+        budgetExhausted = true;
+        skippedBudget++;
+        console.warn(
+          "[optionsDataService] Daily request budget exhausted mid-job at %s — stopping cleanly",
+          underlying
+        );
+      }
+    }
+
+    cleanupOldOptionsRows();
+
+    const stats = { completed, skippedBudget, failed };
+    finishSyncLog(logId, "completed", stats);
+    console.log(
+      "[optionsDataService] Nightly options sync done — completed=%d skippedBudget=%d failed=%d",
+      completed, skippedBudget, failed
+    );
+    return stats;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    finishSyncLog(logId, "failed", { completed: 0, skippedBudget: 0, failed: 0 }, message);
+    console.error("[optionsDataService] Nightly options sync crashed:", message);
+    throw err;
+  }
 }

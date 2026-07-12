@@ -166,6 +166,7 @@ export interface ApiMarketStatus {
   nightlySync: {
     eod: ApiNightlySyncJobStatus;
     intraday: ApiNightlySyncJobStatus;
+    options: ApiNightlySyncJobStatus;
   };
 }
 
