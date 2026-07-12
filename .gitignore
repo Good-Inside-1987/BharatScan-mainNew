@@ -66,6 +66,7 @@ Thumbs.db
 # Electron
 electron/node_modules/
 electron/dist-electron/
+electron/server-deploy/
 
 # PM2 logs
 logs/*.log

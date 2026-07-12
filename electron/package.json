@@ -6,7 +6,8 @@
   "main": "main.js",
   "scripts": {
     "dev": "electron .",
-    "build": "electron-builder"
+    "predeploy-server": "pnpm --filter @workspace/server deploy --prod --legacy server-deploy",
+    "build": "pnpm run predeploy-server && electron-builder"
   },
   "devDependencies": {
     "electron": "^40.0.0",
@@ -27,6 +28,11 @@
       {
         "from": "../server/dist",
         "to": "server-dist",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "server-deploy/node_modules",
+        "to": "server-dist/node_modules",
         "filter": ["**/*"]
       },
       {

@@ -1,0 +1,49 @@
+Bug: electron/package.json's `extraResources` copies server/dist (compiled 
+JS) and the frontend build into the packaged app, but never copies 
+server/node_modules. In electron/main.js, the packaged-mode spawn runs 
+`resources/server-dist/index.js` with cwd set to `resources/server-dist`. 
+Node resolves modules by walking up from cwd, and since node_modules isn't 
+anywhere in that resource tree, the very first third-party import (express, 
+cors, cookie-parser, node-cron, dotenv, etc.) throws "Cannot find module" 
+and the packaged app fails to start. This affects only packaged builds 
+(dmg/nsis/AppImage) — pnpm dev, Replit, and Oracle are unaffected since 
+they run against the real node_modules directly.
+
+Fix, in electron/package.json's "build" config:
+
+1. Add a new extraResources entry so server/node_modules lands exactly 
+   where cwd expects it at runtime:
+     {
+       "from": "../server/node_modules",
+       "to": "server-dist/node_modules",
+       "filter": ["**/*"]
+     }
+   Keep the existing server/dist and frontend entries unchanged.
+
+2. server/node_modules as currently installed includes devDependencies 
+   (typescript, tsx, etc. — anything under server/package.json's 
+   "devDependencies"). Before wiring the copy, check whether the pnpm 
+   workspace setup makes it straightforward to produce a production-only 
+   node_modules for server/ (e.g. `pnpm install --prod --filter server` 
+   into a separate directory, or an equivalent pnpm workspace command) 
+   and prefer that as the `from` path if it's not a large structural 
+   change. If producing a clean prod-only copy would require restructuring 
+   the pnpm workspace, it's fine to ship the full node_modules as-is for 
+   now (correctness over package size) — just leave a comment in 
+   electron/package.json noting this as a follow-up size optimization.
+
+3. Update the electron build script/docs (wherever "pnpm run build" for 
+   packaging is documented — README or a comment in electron/package.json) 
+   to note that server/node_modules must exist (i.e. `pnpm install` must 
+   have been run in server/) before running `electron-builder`, since it's 
+   now a required input to the packaging step.
+
+After this change, verify by actually running the packaged build locally 
+(electron-builder output for your current platform) and launching the 
+resulting app — confirm the spawned server process starts cleanly with no 
+"Cannot find module" errors in its logs, and that the app's UI successfully 
+loads data from it (e.g. hitting /api/health through the app).
+
+Do not change anything about the dev-mode spawn path (the tsx-based one 
+used when NODE_ENV isn't production) — this is purely about the packaged 
+build path.
