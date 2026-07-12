@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { FolderOpen, Upload, RefreshCw, FileSpreadsheet, Loader2, Radio, ChevronDown, ChevronUp, CalendarDays } from "lucide-react";
+import { FolderOpen, Upload, RefreshCw, FileSpreadsheet, Loader2, Radio, ChevronDown, ChevronUp, CalendarDays, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,11 +14,12 @@ function todayIso(): string {
 
 export function DataSourcePanels() {
   const {
-    histories, loadedFileNames, loading, progress, brokerLoading, brokerProgress,
+    histories, loadedFileNames, loading, progress, brokerLoading, brokerProgress, dbLoading,
     folderHandle, folderName, categories, optionsData,
     dateRange, supportsDirectoryPicker,
     pickFolder, refreshFolder, clearFolder,
-    handleFiles, handleLoadFromBroker, handleMasterUpload, handleOptionsUpload, pickOptionsFolder,
+    handleFiles, handleLoadFromBroker, handleLoadFromDatabase,
+    handleMasterUpload, handleOptionsUpload, pickOptionsFolder,
   } = useData();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -165,6 +166,26 @@ export function DataSourcePanels() {
               Load from connected broker
             </label>
           </div>
+        </div>
+
+        {/* Database refresh — always visible above CSV/broker rows */}
+        <div className="flex items-center gap-2 mb-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void handleLoadFromDatabase()}
+            disabled={dbLoading || brokerLoading || loading}
+            className="h-7 px-3 text-xs"
+            title="Load latest nightly-synced EOD data from the local database — no broker call, no API budget consumed"
+          >
+            {dbLoading
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <Database className="h-3 w-3" />}
+            Refresh from Database
+          </Button>
+          {dbLoading && (
+            <span className="text-xs text-muted-foreground">Loading from local DB…</span>
+          )}
         </div>
 
         {useBroker ? (

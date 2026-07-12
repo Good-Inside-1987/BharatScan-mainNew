@@ -40,6 +40,7 @@ interface DataContextValue {
   progress: LoadProgress | null;
   brokerLoading: boolean;
   brokerProgress: BrokerLoadProgress | null;
+  dbLoading: boolean;
   folderHandle: FileSystemDirectoryHandle | null;
   folderName: string | null;
   categories: UniverseCategory[];
@@ -56,6 +57,7 @@ interface DataContextValue {
   clearFolder: () => Promise<void>;
   handleFiles: (files: FileList | null) => Promise<void>;
   handleLoadFromBroker: (symbols: string[], fromDate: string, toDate: string, resolution?: string) => Promise<void>;
+  handleLoadFromDatabase: () => Promise<void>;
   handleMasterUpload: (files: FileList | null) => Promise<void>;
   handleOptionsUpload: (files: FileList | null) => Promise<void>;
   pickOptionsFolder: () => Promise<void>;
@@ -82,6 +84,7 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<LoadProgress | null>(null);
   const [brokerLoading, setBrokerLoading] = useState(false);
   const [brokerProgress, setBrokerProgress] = useState<BrokerLoadProgress | null>(null);
+  const [dbLoading, setDbLoading] = useState(false);
   const [folderHandle, setFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [folderName, setFolderName] = useState<string | null>(null);
   const [categories, setCategoriesState] = useState<UniverseCategory[]>(() => getCategories());
@@ -280,6 +283,54 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Loads EOD data from the local ohlcv_daily table via the server's read-only
+   * /api/market-data/scanner/universe-data endpoint. Never calls the broker or
+   * consumes any daily request budget — it only reads what the nightly sync
+   * already cached locally.
+   */
+  async function handleLoadFromDatabase() {
+    setDbLoading(true);
+    try {
+      const res = await fetch("/api/market-data/scanner/universe-data");
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const json = await res.json() as { symbols: number; bars: number; data: SymbolHistory[] };
+      if (!json.data?.length) {
+        // Nothing synced yet — fall back gracefully, no error toast
+        return;
+      }
+      setHistories(json.data);
+      toast.success(`Loaded ${json.data.length} symbols from local database (${json.bars.toLocaleString()} bars)`);
+    } catch (e) {
+      toast.error(`Database load failed: ${(e as Error).message}`);
+    } finally {
+      setDbLoading(false);
+    }
+  }
+
+  // Auto-load from local DB on first mount when no data has been loaded yet.
+  // Non-blocking: shows a dismiss-able loading toast while fetching.
+  // Falls back silently if the DB is empty (nothing synced yet).
+  useEffect(() => {
+    let toastId: string | number | undefined;
+    (async () => {
+      try {
+        toastId = toast.loading("Loading cached market data…", { duration: Infinity });
+        const res = await fetch("/api/market-data/scanner/universe-data");
+        if (!res.ok) { toast.dismiss(toastId); return; }
+        const json = await res.json() as { symbols: number; bars: number; data: SymbolHistory[] };
+        toast.dismiss(toastId);
+        if (!json.data?.length) return; // empty DB — leave existing empty state
+        setHistories(json.data);
+        toast.success(`Loaded ${json.data.length} symbols from local database`, { duration: 3000 });
+      } catch {
+        if (toastId !== undefined) toast.dismiss(toastId);
+        // Silently swallow — server might not be up yet, that's fine
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally runs once on mount
+
   async function handleMasterUpload(files: FileList | null) {
     if (!files || !files.length) return;
     try {
@@ -402,11 +453,13 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
 
   return (
     <DataContext.Provider value={{
-      histories, loadedFileNames, loading, progress, brokerLoading, brokerProgress, folderHandle, folderName,
+      histories, loadedFileNames, loading, progress, brokerLoading, brokerProgress, dbLoading,
+      folderHandle, folderName,
       categories, holidays, quotes, lotSizes, optionsData, dateRange,
       supportsDirectoryPicker,
       pickFolder, refreshFolder, clearFolder,
-      handleFiles, handleLoadFromBroker, handleMasterUpload, handleOptionsUpload, pickOptionsFolder,
+      handleFiles, handleLoadFromBroker, handleLoadFromDatabase,
+      handleMasterUpload, handleOptionsUpload, pickOptionsFolder,
       mergeApiStocks, mergeApiOptions, clearApiData,
       realNow, dateMode, setDateMode, historicalDate, setHistoricalDate,
       now, marketTarget, targetHoliday,

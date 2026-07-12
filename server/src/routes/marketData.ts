@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { appDb } from "../db.js";
+import { appDb, marketDb } from "../db.js";
 import { getHistoricalBars, getLiveQuotes, getQuoteCacheStats, resetQuoteCacheStats } from "../services/marketDataService.js";
 import { getOptionExpiriesFromBroker, loadOptionsFromBroker } from "../services/optionsDataService.js";
 import {
@@ -298,6 +298,134 @@ router.post("/options/load", async (req: Request, res: Response) => {
   }
 
   res.end();
+});
+
+/**
+ * GET /scanner/universe-data?from=YYYY-MM-DD&to=YYYY-MM-DD
+ *
+ * Read-only endpoint that queries ohlcv_daily directly — NO broker calls, NO
+ * budget consumption, no interaction with marketDataService whatsoever.
+ * Returns every symbol that has at least one row in the requested date range,
+ * shaped as SymbolHistory[] so the Scanner can call setHistories() directly.
+ *
+ * prevClose is computed server-side with a LAG window function using a 10-day
+ * lookback buffer (covers weekends + public holidays) so the first bar in the
+ * range has correct prevClose even when no prior bar exists in the range.
+ *
+ * Symbols stored in ohlcv_daily use Fyers format ("NSE:SBIN-EQ"); we strip
+ * the exchange prefix and instrument suffix to return the plain ticker ("SBIN")
+ * that matches what CSV loads and broker loads put in SymbolHistory.symbol.
+ */
+router.get("/scanner/universe-data", (req: Request, res: Response) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const twoYearsAgo = (() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 2);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  const rawFrom = req.query.from;
+  const rawTo   = req.query.to;
+  const from = (typeof rawFrom === "string" && DATE_RE.test(rawFrom)) ? rawFrom : twoYearsAgo;
+  const to   = (typeof rawTo   === "string" && DATE_RE.test(rawTo))   ? rawTo   : today;
+
+  if (from > to) {
+    res.status(400).json({ error: "from must not be after to" });
+    return;
+  }
+
+  try {
+    // CTE + LAG: the 10-day buffer before `from` ensures the first in-range bar
+    // for every symbol gets a correct prevClose from the nearest prior trading day.
+    interface RawRow {
+      symbol:     string;
+      date:       string;
+      open:       number;
+      high:       number;
+      low:        number;
+      close:      number;
+      volume:     number;
+      prev_close: number;
+    }
+
+    const rows = marketDb.prepare(`
+      WITH context AS (
+        SELECT symbol, date, open, high, low, close, volume,
+               LAG(close) OVER (PARTITION BY symbol ORDER BY date) AS prev_close
+          FROM ohlcv_daily
+         WHERE date BETWEEN date(?, '-10 days') AND ?
+      )
+      SELECT symbol, date, open, high, low, close, volume,
+             COALESCE(prev_close, 0.0) AS prev_close
+        FROM context
+       WHERE date >= ?
+       ORDER BY symbol, date
+    `).all(from, to, from) as unknown as RawRow[];
+
+    if (rows.length === 0) {
+      res.json({ symbols: 0, bars: 0, data: [] });
+      return;
+    }
+
+    // Strip Fyers exchange/instrument wrapping: "NSE:SBIN-EQ" → symbol="SBIN", series="EQ"
+    // "NSE:NIFTY50-INDEX" → symbol="NIFTY50", series="INDEX"
+    // "BSE:SENSEX-INDEX"  → symbol="SENSEX",  series="INDEX"
+    // Anything that doesn't match the pattern is kept as-is with series="EQ".
+    function stripFyers(raw: string): { symbol: string; series: string } {
+      const colonIdx = raw.indexOf(":");
+      const base = colonIdx >= 0 ? raw.slice(colonIdx + 1) : raw;
+      const dashIdx = base.lastIndexOf("-");
+      if (dashIdx > 0) {
+        return { symbol: base.slice(0, dashIdx), series: base.slice(dashIdx + 1) };
+      }
+      return { symbol: base, series: "EQ" };
+    }
+
+    interface HistEntry { series: string; bars: Bar[] }
+    interface Bar {
+      date: string; open: number; high: number; low: number; close: number;
+      prevClose: number; volume: number; trades: number; value: number;
+    }
+
+    const bySymbol = new Map<string, HistEntry>();
+
+    for (const row of rows) {
+      const { symbol, series } = stripFyers(row.symbol);
+      if (!bySymbol.has(symbol)) {
+        bySymbol.set(symbol, { series, bars: [] });
+      }
+      bySymbol.get(symbol)!.bars.push({
+        date:      row.date,
+        open:      row.open,
+        high:      row.high,
+        low:       row.low,
+        close:     row.close,
+        prevClose: row.prev_close,
+        volume:    row.volume ?? 0,
+        trades:    0,
+        value:     0,
+      });
+    }
+
+    const data = Array.from(bySymbol.entries()).map(([symbol, { series, bars }]) => ({
+      symbol,
+      series,
+      bars,
+    }));
+
+    console.log(
+      "[marketData] /scanner/universe-data — %d symbols, %d bars (%s → %s)",
+      data.length, rows.length, from, to
+    );
+
+    res.json({ symbols: data.length, bars: rows.length, data });
+  } catch (err) {
+    console.error(
+      "[marketData] /scanner/universe-data error:",
+      err instanceof Error ? err.message : err
+    );
+    res.status(500).json({ error: "Failed to query local ohlcv_daily table" });
+  }
 });
 
 router.get("/scheduler-status", (_req: Request, res: Response) => {
