@@ -99,6 +99,7 @@ _None recorded yet_
 
 ## Setup status
 
+- Re-imported project verified again on 2026-07-12: ran `pnpm install` (node_modules was missing after re-import) and confirmed the `Backend API server` and `Start application` workflows both come up cleanly; frontend loads correctly in the preview.
 - Re-imported project set up on 2026-07-12: `pnpm install` run; `Backend API server` (port 3001) and `artifacts/bharatscan: web` (the frontend, managed as a Replit artifact) workflows verified running. The old standalone "Start application" workflow was removed in favor of the artifact-managed one.
 - Node.js module upgraded from `nodejs-20` to `nodejs-22` (via `.replit`) — required for `node:sqlite`, which needs Node.js v22.5+.
 - `electron/package.json`: `electron` devDependency bumped from `^31.7.7` to `^40.0.0` — Electron 31 bundles Node 20 (no `node:sqlite`); Electron 40 bundles Node 24. Fixed a stale `node_modules/.bin/tsx` path in `electron/main.js` (tsx only hoists into `server/node_modules/.bin`, not the root) while verifying this.
