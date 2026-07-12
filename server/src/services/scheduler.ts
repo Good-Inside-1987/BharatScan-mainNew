@@ -22,18 +22,50 @@ import { runStartupCatchUp, startPeriodicCatchUpCheck, getCatchUpStatus } from "
 
 let schedulerActive = false;
 
+// One-time bootstrap: if the symbols table is completely empty (fresh
+// deployment, or any day other than Monday morning before the weekly cron
+// has ever fired), download the symbol master immediately instead of
+// leaving every downstream job (EOD/intraday sync, F&O auto-subscribe, ATM
+// option tracking) silently idle for up to 6 days. No-op once symbols has
+// at least one row, so it never fights the Monday cron or duplicates work.
+// syncSymbolMaster() hits only Fyers' public static files + NSE's public
+// index pages — no authenticated broker session required — so this is safe
+// to run unconditionally at every server start.
+async function bootstrapSymbolMasterIfEmpty(): Promise<void> {
+  const row = marketDb.prepare(`SELECT COUNT(*) as c FROM symbols`).get() as { c: number };
+  if (row.c > 0) return;
+
+  console.log(
+    "[scheduler] symbols table is empty — running one-time bootstrap symbol master sync before registering cron jobs …"
+  );
+  try {
+    const r = await syncSymbolMaster(marketDb);
+    console.log(`[scheduler] Symbol master sync complete: ${r.upserted} rows upserted`);
+  } catch (err) {
+    console.error(
+      "[scheduler] Bootstrap symbol master sync failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
 // Only runs the scheduler inside this process on environments where it's
 // not handled by a separate PM2 process (see config.runSchedulerInProcess).
 export function startScheduler(): void {
   if (!config.runSchedulerInProcess) return;
-  registerAllCronJobs();
+  void registerAllCronJobs();
 }
 
 // Registers the startup catch-up run and all cron.schedule(...) jobs.
 // Called by startScheduler() (guarded by config.runSchedulerInProcess, for
 // Replit/local/Electron) and unconditionally by the standalone Oracle
 // scheduler process (server/src/scheduler/standalone.ts).
-export function registerAllCronJobs(): void {
+export async function registerAllCronJobs(): Promise<void> {
+  // Bootstrap symbols if the table is completely empty — must happen before
+  // catch-up and cron registration below so downstream jobs have data to
+  // work with as soon as possible on a fresh deployment.
+  await bootstrapSymbolMasterIfEmpty();
+
   // Catch up on any missed trading days (server was asleep/offline, or a job
   // silently failed) BEFORE the normal cron jobs are registered below, so a
   // startup catch-up run never overlaps one about to fire at its normal time.

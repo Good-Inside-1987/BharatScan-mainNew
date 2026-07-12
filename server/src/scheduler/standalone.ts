@@ -34,7 +34,7 @@ process.on("uncaughtException", (err) => {
 // Unconditional — ignore config.runSchedulerInProcess entirely here, since
 // this file's whole purpose is to be the dedicated process that runs cron
 // jobs on Oracle.
-registerAllCronJobs();
+await registerAllCronJobs();
 
 const jobCount = Object.keys(config.syncSchedule).length;
 console.log(
