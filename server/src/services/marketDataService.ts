@@ -259,12 +259,22 @@ function getBudgetCount(date: string): number {
   return row.count;
 }
 
-/** Increments the persisted daily counter and returns true when budget is still available. */
+/**
+ * Increments the persisted daily counter and returns true when budget is still available.
+ *
+ * The increment is a single atomic UPDATE (rather than a separate SELECT-then-UPDATE) so
+ * two different OS processes sharing the same market.db file (the Oracle standalone
+ * scheduler and the main web server) can't both read the same pre-increment count and
+ * both proceed — SQLite serializes writes to the file at the engine level, so this
+ * conditional increment is atomic regardless of which process issues it.
+ */
 function consumeBudget(): boolean {
   const today = todayIST();
-  if (getBudgetCount(today) >= config.backfillDailyRequestBudget) return false;
-  marketDb.prepare(`UPDATE request_budget SET count = count + 1 WHERE date = ?`).run(today);
-  return true;
+  ensureBudgetRow(today);
+  const result = marketDb
+    .prepare(`UPDATE request_budget SET count = count + 1 WHERE date = ? AND count < ?`)
+    .run(today, config.backfillDailyRequestBudget);
+  return Number(result.changes) > 0;
 }
 
 // ── Authenticated adapter cache ───────────────────────────────────────────────

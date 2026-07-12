@@ -1,0 +1,62 @@
+Bug: the daily request budget counter, persisted in market.db's
+request_budget table since Prompt 16, has a check-then-increment race
+condition across processes. consumeBudget() in
+server/src/services/marketDataService.ts currently does:
+
+    function consumeBudget(): boolean {
+      const today = todayIST();
+      if (getBudgetCount(today) >= config.backfillDailyRequestBudget) return false;
+      marketDb.prepare(`UPDATE request_budget SET count = count + 1 WHERE date = ?`).run(today);
+      return true;
+    }
+
+The SELECT (inside getBudgetCount) and the UPDATE are two separate
+statements. That's safe within a single process (Node is single-threaded,
+so nothing else can run between them there), but on Oracle the scheduler
+runs as its own PM2 process (server/src/scheduler/standalone.ts) separate
+from the main web server process (server/src/index.ts), and both share
+the same market.db file. If the nightly cron (running in the scheduler
+process) and a manual "Load from connected broker" click (handled by the
+web server process) both call consumeBudget() close together, both can
+read the same pre-increment count before either writes, and both proceed
+— letting the persisted counter creep slightly past
+config.backfillDailyRequestBudget instead of hard-stopping at it. Doesn't
+affect Replit or local/Electron, where the scheduler runs in the same
+process as the web server.
+
+Fix, in server/src/services/marketDataService.ts:
+
+Replace the SELECT-then-UPDATE in consumeBudget() with a single atomic
+UPDATE that only increments if still under budget, and check how many
+rows it actually changed:
+
+    function consumeBudget(): boolean {
+      const today = todayIST();
+      ensureBudgetRow(today);
+      const result = marketDb
+        .prepare(`UPDATE request_budget SET count = count + 1 WHERE date = ? AND count < ?`)
+        .run(today, config.backfillDailyRequestBudget);
+      return Number(result.changes) > 0;
+    }
+
+This works correctly across processes because SQLite serializes writes
+to the same file at the engine level — the whole UPDATE (read the
+current count, compare, conditionally write) happens as one atomic
+operation regardless of which process issued it, so two processes racing
+to call this can no longer both succeed past the limit. Keep
+ensureBudgetRow(today) (already defined) to guarantee today's row exists
+before the UPDATE runs — WAL mode's row-level locking makes this cheap
+enough to call every time, same as today.
+
+Do not change getBudgetCount() or getServiceStats() — they're read-only
+and already correct; this fix is scoped to consumeBudget()'s
+check-and-increment only.
+
+Test: with two terminal windows (or the actual scheduler + web server
+processes running side by side, closer to the real Oracle setup), fire
+enough concurrent requests that hit consumeBudget() to approach the
+configured budget from both processes at once, and confirm
+request_budget's count for today never exceeds
+config.backfillDailyRequestBudget even under that overlap — then confirm
+normal single-process operation (Replit/local) still behaves exactly as
+before.
