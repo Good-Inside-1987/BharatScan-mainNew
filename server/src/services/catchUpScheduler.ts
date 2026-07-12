@@ -105,6 +105,13 @@ function isTradingDay(dateStr: string): boolean {
   return !isWeekend(dateStr) && !isHoliday(dateStr);
 }
 
+/** Walks backward from `dateStr` (inclusive) to the nearest actual trading day. */
+function mostRecentTradingDay(dateStr: string): string {
+  let d = dateStr;
+  while (!isTradingDay(d)) d = addDays(d, -1);
+  return d;
+}
+
 /** All trading days strictly between `fromExclusive` and `toInclusive`. */
 function listMissedWeekdays(fromExclusive: string, toInclusive: string): string[] {
   const days: string[] = [];
@@ -186,7 +193,18 @@ export async function runStartupCatchUp(): Promise<void> {
     const backlog: Array<{ job: CatchUpJob; date: string }> = [];
     for (const job of JOBS) {
       const lastSuccess = getLastSuccessDate(job.jobName);
-      if (!lastSuccess) continue; // never run before — nothing to "catch up" from
+      if (!lastSuccess) {
+        // Never run before — walking forward from a last-success date that
+        // doesn't exist means there's nothing to walk forward from. Bootstrap
+        // with at least one real day of data (the most recent trading day)
+        // instead of skipping forever; deep multi-year backfill stays the
+        // deliberate manual "Load from connected broker" flow.
+        const bootstrapDate = mostRecentTradingDay(yesterday);
+        if (!hasSuccessfulRunForDate(job.jobName, bootstrapDate)) {
+          backlog.push({ job, date: bootstrapDate });
+        }
+        continue;
+      }
       const missed = listMissedWeekdays(lastSuccess, yesterday)
         .filter((d) => !hasSuccessfulRunForDate(job.jobName, d));
       for (const date of missed) backlog.push({ job, date });
