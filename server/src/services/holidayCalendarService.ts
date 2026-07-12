@@ -17,7 +17,7 @@
  */
 
 import { marketDb } from "../db.js";
-import { getNseSessionCookies, nseApiGet } from "./nseSession.js";
+import { getNseSessionCookies, nseApiGet, parseNseDate } from "./nseSession.js";
 
 interface HolidayEntry {
   tradingDate?: string;   // e.g. "26-Jan-2026"
@@ -27,13 +27,6 @@ interface HolidayEntry {
 }
 
 type HolidayMasterResponse = Record<string, HolidayEntry[] | undefined>;
-
-/** Parses NSE's "26-Jan-2026" (or similar) date strings into ISO YYYY-MM-DD. */
-function parseNseDate(raw: string): string | null {
-  const d = new Date(raw.replace(/-/g, " "));
-  if (isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
-}
 
 let loggedRawShapeOnce = false;
 

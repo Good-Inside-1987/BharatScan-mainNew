@@ -1,0 +1,114 @@
+Bug: two places in the codebase convert NSE's date strings into ISO
+(YYYY-MM-DD) format by routing through a JS Date object and
+.toISOString(), which silently shifts the date backward by one day
+whenever the process's system timezone is ahead of UTC (IST always is):
+
+    const d = new Date(raw.replace(/-/g, " "));
+    return d.toISOString().slice(0, 10);
+
+`new Date("26 Jan 2026")` is parsed as local midnight. On a UTC system
+that's also UTC midnight, so .toISOString() round-trips correctly. On an
+IST system (very likely on a local/Electron deployment, and possibly on
+an Oracle box configured with local timezone), local midnight on Jan 26
+is 18:30 UTC on Jan 25 — so .toISOString().slice(0, 10) silently returns
+"2026-01-25" instead of "2026-01-26". Reproducible directly:
+
+    TZ=Asia/Kolkata node -e 'console.log(new Date("26 Jan 2026").toISOString().slice(0,10))'
+    → 2026-01-25   (should be 2026-01-26)
+
+    TZ=UTC node -e 'console.log(new Date("26 Jan 2026").toISOString().slice(0,10))'
+    → 2026-01-26   (correct — this is why it wasn't caught on Replit)
+
+This affects two files:
+1. server/src/services/holidayCalendarService.ts — parseNseDate(), new
+   in Prompt 19. A shifted holiday date means the real holiday (e.g. Jan
+   26) still gets misclassified as an ordinary trading day, while the
+   day before it (a real trading day) gets wrongly marked as a holiday
+   instead — silently undoing Prompt 19 on any IST-timezone deployment.
+2. server/src/services/supplementaryJobs.ts, line ~84 — the FII/DII
+   date normalisation (pre-existing, unrelated to Prompts 17–19). Same
+   bug, been there since before these fixes; every FII/DII row whose API
+   response carries an explicit date string has likely been stored
+   under the wrong calendar date on any IST-timezone deployment.
+
+Fix — add one shared, timezone-safe parser instead of patching each
+call site separately, since both files already import from
+nseSession.ts:
+
+1. In server/src/services/nseSession.ts, add:
+
+    const NSE_MONTHS: Record<string, string> = {
+      jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+      jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+    };
+
+    /**
+     * Parses NSE's date strings — either "DD-Mon-YYYY" (e.g. "26-Jan-2026")
+     * or "DD/MM/YYYY" (e.g. "01/07/2026") — into ISO YYYY-MM-DD using pure
+     * string manipulation. Deliberately does NOT go through a Date object:
+     * `new Date(...).toISOString()` silently shifts the date backward by a
+     * day whenever the process's system timezone is ahead of UTC (IST
+     * always is) and local midnight rounds down to the previous UTC
+     * calendar day. Returns null if the string doesn't match either format.
+     */
+    export function parseNseDate(raw: string): string | null {
+      const trimmed = raw.trim();
+
+      const withMonthName = trimmed.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+      if (withMonthName) {
+        const [, day, mon, year] = withMonthName;
+        const month = NSE_MONTHS[mon.toLowerCase()];
+        if (!month) return null;
+        return `${year}-${month}-${day.padStart(2, "0")}`;
+      }
+
+      const numeric = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (numeric) {
+        const [, day, month, year] = numeric;
+        return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+      }
+
+      return null;
+    }
+
+2. In server/src/services/holidayCalendarService.ts: delete its local
+   parseNseDate() function entirely and import the shared one from
+   nseSession.ts instead:
+
+    import { getNseSessionCookies, nseApiGet, parseNseDate } from "./nseSession.js";
+
+   No other changes needed there — the call site (`parseNseDate(rawDate)`)
+   already matches this signature.
+
+3. In server/src/services/supplementaryJobs.ts, replace the inline
+   normalisation at line ~84:
+
+    const rowDate = row.date
+      ? (() => {
+          const d = new Date(row.date.replace(/-/g, " "));
+          if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+          return date;
+        })()
+      : date;
+
+   with:
+
+    const rowDate = row.date ? (parseNseDate(row.date) ?? date) : date;
+
+   and add `parseNseDate` to its existing `import { getNseSessionCookies,
+   nseApiGet } from "./nseSession.js"` line. Keep the `?? date` fallback
+   to today's target date if parseNseDate doesn't recognise the format,
+   same graceful-degradation behaviour as today.
+
+Do not change anything else in either file — this is purely swapping
+the date-parsing mechanism, not the surrounding fetch/upsert logic.
+
+Test: run both of the TZ=Asia/Kolkata / TZ=UTC one-liners above against
+the new parseNseDate("26-Jan-2026") directly and confirm both return
+"2026-01-26" regardless of system timezone (unlike the old
+Date-based version, which only worked by accident on UTC systems).
+Also test parseNseDate("01/07/2026") → "2026-07-01", and a garbage
+input (e.g. "not-a-date") → null. Then, with TZ=Asia/Kolkata set,
+restart the server with an empty nse_holidays table and confirm the
+bootstrap sync stores Republic Day as 2026-01-26 (not 2026-01-25) —
+this is the concrete regression test for Prompt 19's original bug.

@@ -17,7 +17,7 @@
 
 import { marketDb } from "../db.js";
 import { startSyncLog, finishSyncLog, todayIST } from "./syncJobs.js";
-import { getNseSessionCookies, nseApiGet } from "./nseSession.js";
+import { getNseSessionCookies, nseApiGet, parseNseDate } from "./nseSession.js";
 
 // NSE_UA is also used below for the AMFI MF holdings fetch (a different host,
 // but the same browser-like User-Agent avoids being blocked there too).
@@ -78,14 +78,7 @@ async function fetchAndStoreFiiDii(date: string, cookies: string): Promise<numbe
     const netValue  = parseNum(row.net       ?? row.netPurchase);
 
     // Use the API's date field if it carries a date string; otherwise fall back to today
-    const rowDate = row.date
-      ? (() => {
-          // NSE dates arrive as "01-Jul-2026" or "01/07/2026" — normalise to YYYY-MM-DD
-          const d = new Date(row.date.replace(/-/g, " "));
-          if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-          return date;
-        })()
-      : date;
+    const rowDate = row.date ? (parseNseDate(row.date) ?? date) : date;
 
     upsert.run(rowDate, category, segment, buyValue, sellValue, netValue);
     count++;
