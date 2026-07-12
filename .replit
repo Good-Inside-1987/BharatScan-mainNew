@@ -1,6 +1,6 @@
 modules = ["nodejs-22", "web", "nix"]
     [agent]
-    expertMode = true
+expertMode = true
     stack = "BEST_EFFORT_FALLBACK"
 
     [nix]
