@@ -33,8 +33,13 @@ export function Sidebar() {
 
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-14 z-50 flex flex-col bg-card border-r border-border shadow-lg">
-      {/* Logo */}
-      <div className="flex items-center justify-center h-14 border-b border-border shrink-0">
+      {/* Logo — height is synced to the main header's rendered height via
+          --header-height (set in GlobalHeader) so the bottom border lines
+          always match up, regardless of header content/wrapping. */}
+      <div
+        className="flex items-center justify-center border-b border-border shrink-0"
+        style={{ height: "var(--header-height, 3.5rem)" }}
+      >
         <img
           src={logoUrl}
           alt="BharatScan"

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { CalendarIcon } from "lucide-react";
@@ -20,6 +20,21 @@ export function GlobalHeader() {
   const [quoteIdx, setQuoteIdx] = useState<number>(() => Math.floor(Math.random() * Math.max(1, quotes.length)));
   const [quoteFade, setQuoteFade] = useState(true);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+
+  // Keep the sidebar's logo box the same height as this header, so their
+  // bottom border lines always line up regardless of header content.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const setHeight = () => {
+      document.documentElement.style.setProperty("--header-height", `${el.offsetHeight}px`);
+    };
+    setHeight();
+    const observer = new ResizeObserver(setHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!quotes.length) return;
@@ -45,7 +60,7 @@ export function GlobalHeader() {
     || (marketTarget.isWeekend ? (marketTarget.date.getDay() === 0 ? "Sunday" : "Saturday") : "");
 
   return (
-    <header className="border-b border-border bg-card/40 backdrop-blur sticky top-0 z-10">
+    <header ref={headerRef} className="border-b border-border bg-card/40 backdrop-blur sticky top-0 z-10">
       <div className="container relative flex items-center py-1.5 gap-4">
         {/* Left — logo + brand + market status */}
         <div className="flex-shrink-0">
