@@ -10,6 +10,7 @@ import {
   autoSubscribeFoSymbols,
 } from "../services/liveFeedService.js";
 import { getSchedulerStatus } from "../services/scheduler.js";
+import { runEodSyncJob, runIntradaySyncJob } from "../services/syncJobs.js";
 import {
   AuthenticationError,
   SessionExpiredError,
@@ -331,6 +332,31 @@ router.post("/live/auto-subscribe-fo/test", (_req: Request, res: Response) => {
   } catch (err) {
     console.error("[marketData] /live/auto-subscribe-fo/test error:", err instanceof Error ? err.message : err);
     res.status(500).json({ error: "Failed to run F&O auto-subscribe" });
+  }
+});
+
+/**
+ * TEMPORARY test routes — manually run the nightly EOD / intraday sync jobs
+ * the scheduler triggers at 4pm / 4:30pm IST, for verifying behavior outside
+ * that window. Safe to remove once both jobs have been verified live.
+ */
+router.post("/sync/eod/test", async (_req: Request, res: Response) => {
+  try {
+    const result = await runEodSyncJob();
+    res.json(result);
+  } catch (err) {
+    console.error("[marketData] /sync/eod/test error:", err instanceof Error ? err.message : err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "EOD sync failed" });
+  }
+});
+
+router.post("/sync/intraday/test", async (_req: Request, res: Response) => {
+  try {
+    const result = await runIntradaySyncJob();
+    res.json(result);
+  } catch (err) {
+    console.error("[marketData] /sync/intraday/test error:", err instanceof Error ? err.message : err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Intraday sync failed" });
   }
 });
 

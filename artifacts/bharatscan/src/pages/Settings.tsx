@@ -1454,6 +1454,71 @@ export default function Settings() {
           )}
 
           {activeSection === "broker" && (
+            <SectionCard title="Nightly Sync Jobs" icon={Clock}>
+              <div className="py-3 space-y-3">
+                {marketStatusLoading && !marketStatus && (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+
+                {!marketStatusLoading && !marketStatus && (
+                  <p className="text-[10px] text-muted-foreground py-2">Could not load nightly sync status.</p>
+                )}
+
+                {marketStatus && (
+                  <>
+                    {[
+                      { label: "EOD Sync (4:00 PM IST)", job: marketStatus.nightlySync.eod },
+                      { label: "Intraday Sync (4:30 PM IST)", job: marketStatus.nightlySync.intraday },
+                    ].map(({ label, job }) => (
+                      <div key={job.jobName} className="pb-2 border-b border-border/20 last:border-0 last:pb-0 space-y-1">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-foreground font-medium">{label}</span>
+                          <span
+                            className={
+                              job.status === "completed"
+                                ? "text-emerald-400"
+                                : job.status === "failed"
+                                ? "text-red-400"
+                                : "text-muted-foreground"
+                            }
+                          >
+                            {job.status ?? "never run"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                          <span>Last run</span>
+                          <span className="font-mono text-foreground">{formatDate(job.finishedAt ?? job.startedAt)}</span>
+                        </div>
+                        {job.status === "failed" && job.errorMessage && (
+                          <p className="text-[10px] text-red-400">{job.errorMessage}</p>
+                        )}
+                        {job.status !== "failed" && (
+                          <div className="grid grid-cols-3 gap-2 text-[10px] text-muted-foreground">
+                            <div>
+                              <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Completed</span>
+                              <span className="text-emerald-400 font-mono">{job.symbolsCompleted}</span>
+                            </div>
+                            <div>
+                              <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Skipped (budget)</span>
+                              <span className="text-amber-400 font-mono">{job.symbolsSkippedBudget}</span>
+                            </div>
+                            <div>
+                              <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Failed</span>
+                              <span className="text-red-400 font-mono">{job.symbolsFailed}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            </SectionCard>
+          )}
+
+          {activeSection === "broker" && (
             <SectionCard title="Quote Cache Diagnostics" icon={Database}>
               <div className="py-3 space-y-3">
                 <div className="flex justify-end">

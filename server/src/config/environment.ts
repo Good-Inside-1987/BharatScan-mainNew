@@ -99,12 +99,14 @@ export const config = {
     mfHoldings:   "0 17 5 * *",     // 5th of each month at 5 PM
   },
 
-  // Whether the scheduler runs inside the Express process (Replit)
-  // or as a completely separate PM2 process (Oracle).
+  // Whether the scheduler runs inside the Express process (Replit + local/
+  // Electron) or as a completely separate PM2 process (real Oracle server
+  // deployments only, via server/scheduler/standalone.js).
   // On Oracle, deploy only restarts bharatscan (web server),
   // never bharatscan-scheduler, so a 4 PM sync is never interrupted
-  // by a routine code deploy.
-  runSchedulerInProcess: isReplit,
+  // by a routine code deploy. Local/Electron has no separate PM2 process,
+  // so it must run scheduled jobs in-process like Replit does.
+  runSchedulerInProcess: envLabel !== "oracle",
 
   // ── Market data backfill budget ──────────────────────────────────
   // Maximum broker API requests the backfill service may make per

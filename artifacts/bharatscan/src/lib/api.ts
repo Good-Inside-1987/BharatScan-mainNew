@@ -137,6 +137,17 @@ export interface ApiBackfillSymbolProgress {
   estimatedDaysToComplete: number;
 }
 
+export interface ApiNightlySyncJobStatus {
+  jobName: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  status: string | null;
+  symbolsCompleted: number;
+  symbolsSkippedBudget: number;
+  symbolsFailed: number;
+  errorMessage: string | null;
+}
+
 export interface ApiMarketStatus {
   environment: string;
   databases: { app_db_mb: number; market_db_mb: number; live_db_mb: number };
@@ -151,6 +162,10 @@ export interface ApiMarketStatus {
     workerRunning: boolean;
     adaptersCached: number;
     symbols: ApiBackfillSymbolProgress[];
+  };
+  nightlySync: {
+    eod: ApiNightlySyncJobStatus;
+    intraday: ApiNightlySyncJobStatus;
   };
 }
 

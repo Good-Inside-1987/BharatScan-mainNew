@@ -4,6 +4,7 @@ import { config } from "../config/environment.js";
 import { connect, disconnect, autoSubscribeFoSymbols, clearProtectedSymbols } from "./liveFeedService.js";
 import { marketDb } from "../db.js";
 import { syncSymbolMaster } from "./symbolMasterService.js";
+import { runEodSyncJob, runIntradaySyncJob } from "./syncJobs.js";
 
 let schedulerActive = false;
 
@@ -55,6 +56,30 @@ export function startScheduler(): void {
     { timezone: config.timezone }
   );
 
+  // Nightly EOD sync — 4:00 PM IST, full NSE universe, daily candles.
+  cron.schedule(
+    config.syncSchedule.eod,
+    () => {
+      console.log("[scheduler] Running scheduled EOD sync …");
+      void runEodSyncJob().catch((err) => {
+        console.error("[scheduler] EOD sync failed:", err instanceof Error ? err.message : String(err));
+      });
+    },
+    { timezone: config.timezone }
+  );
+
+  // Nightly intraday sync — 4:30 PM IST, universe/candle-size per config.
+  cron.schedule(
+    config.syncSchedule.intraday,
+    () => {
+      console.log("[scheduler] Running scheduled intraday sync …");
+      void runIntradaySyncJob().catch((err) => {
+        console.error("[scheduler] Intraday sync failed:", err instanceof Error ? err.message : String(err));
+      });
+    },
+    { timezone: config.timezone }
+  );
+
   schedulerActive = true;
 }
 
@@ -84,6 +109,14 @@ export function getSchedulerStatus() {
       symbolMaster: {
         expression: config.syncSchedule.symbolMaster,
         nextRun: schedulerActive ? nextFireTime(config.syncSchedule.symbolMaster) : null,
+      },
+      eod: {
+        expression: config.syncSchedule.eod,
+        nextRun: schedulerActive ? nextFireTime(config.syncSchedule.eod) : null,
+      },
+      intraday: {
+        expression: config.syncSchedule.intraday,
+        nextRun: schedulerActive ? nextFireTime(config.syncSchedule.intraday) : null,
       },
     },
   };
