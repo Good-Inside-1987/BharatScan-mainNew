@@ -96,6 +96,7 @@ export const config = {
     liveOpen:     "0 9 * * 1-5",    // 9:00 AM IST — start WebSocket
     liveClose:    "35 15 * * 1-5",  // 3:35 PM IST — close WebSocket
     symbolMaster: "0 7 * * 1",      // 7:00 AM IST every Monday
+    holidayCalendar: "15 7 * * 1",  // 7:15 AM IST every Monday — right after symbolMaster
     mfHoldings:   "0 17 5 * *",     // 5th of each month at 5 PM
   },
 

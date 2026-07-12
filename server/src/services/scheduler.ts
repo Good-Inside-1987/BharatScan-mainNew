@@ -13,6 +13,7 @@ import {
 } from "./liveOptionsTracker.js";
 import { marketDb } from "../db.js";
 import { syncSymbolMaster } from "./symbolMasterService.js";
+import { syncNseHolidayCalendar } from "./holidayCalendarService.js";
 import { runEodSyncJob, runIntradaySyncJob } from "./syncJobs.js";
 import { runOptionsSyncJob } from "./optionsDataService.js";
 import { runFoBanListJob } from "./foBanListService.js";
@@ -49,6 +50,31 @@ async function bootstrapSymbolMasterIfEmpty(): Promise<void> {
   }
 }
 
+// One-time bootstrap: if nse_holidays is completely empty (fresh deployment,
+// or any day other than Monday morning before the weekly cron has ever
+// fired), download the holiday calendar immediately instead of leaving
+// isTradingDay() blind to real holidays for up to a week. No-op once
+// nse_holidays has at least one row. syncNseHolidayCalendar() hits only
+// NSE's public holiday-master API — no authenticated broker session
+// required — so this is safe to run unconditionally at every server start.
+async function bootstrapHolidayCalendarIfEmpty(): Promise<void> {
+  const row = marketDb.prepare(`SELECT COUNT(*) as c FROM nse_holidays`).get() as { c: number };
+  if (row.c > 0) return;
+
+  console.log(
+    "[scheduler] nse_holidays table is empty — running one-time bootstrap holiday calendar sync before registering cron jobs …"
+  );
+  try {
+    const r = await syncNseHolidayCalendar();
+    console.log(`[scheduler] Holiday calendar sync complete: ${r.upserted} rows upserted`);
+  } catch (err) {
+    console.error(
+      "[scheduler] Bootstrap holiday calendar sync failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
 // Only runs the scheduler inside this process on environments where it's
 // not handled by a separate PM2 process (see config.runSchedulerInProcess).
 export function startScheduler(): void {
@@ -65,6 +91,10 @@ export async function registerAllCronJobs(): Promise<void> {
   // catch-up and cron registration below so downstream jobs have data to
   // work with as soon as possible on a fresh deployment.
   await bootstrapSymbolMasterIfEmpty();
+  // Must also run before catch-up/cron registration below: catch-up's
+  // isTradingDay() checks depend on the holiday calendar being current as
+  // early as possible in a fresh deployment.
+  await bootstrapHolidayCalendarIfEmpty();
 
   // Catch up on any missed trading days (server was asleep/offline, or a job
   // silently failed) BEFORE the normal cron jobs are registered below, so a
@@ -133,6 +163,20 @@ export async function registerAllCronJobs(): Promise<void> {
         console.log(`[scheduler] Symbol master sync complete: ${r.upserted} rows upserted`);
       }).catch(err => {
         console.error("[scheduler] Symbol master sync failed:", err instanceof Error ? err.message : String(err));
+      });
+    },
+    { timezone: config.timezone }
+  );
+
+  // Holiday calendar refresh — every Monday at 7:15 AM IST, right after symbolMaster.
+  cron.schedule(
+    config.syncSchedule.holidayCalendar,
+    () => {
+      console.log("[scheduler] Running scheduled holiday calendar sync …");
+      void syncNseHolidayCalendar().then(r => {
+        console.log(`[scheduler] Holiday calendar sync complete: ${r.upserted} rows upserted`);
+      }).catch(err => {
+        console.error("[scheduler] Holiday calendar sync failed:", err instanceof Error ? err.message : String(err));
       });
     },
     { timezone: config.timezone }
@@ -264,6 +308,10 @@ export function getSchedulerStatus() {
       symbolMaster: {
         expression: config.syncSchedule.symbolMaster,
         nextRun: schedulerActive ? nextFireTime(config.syncSchedule.symbolMaster) : null,
+      },
+      holidayCalendar: {
+        expression: config.syncSchedule.holidayCalendar,
+        nextRun: schedulerActive ? nextFireTime(config.syncSchedule.holidayCalendar) : null,
       },
       eod: {
         expression: config.syncSchedule.eod,

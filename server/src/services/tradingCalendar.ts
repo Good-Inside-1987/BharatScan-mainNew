@@ -31,17 +31,14 @@ export function isWeekend(dateStr: string): boolean {
   return day === 0 || day === 6;
 }
 
-let holidaysPopulated: boolean | null = null;
-
-function nseHolidaysPopulated(): boolean {
-  if (holidaysPopulated !== null) return holidaysPopulated;
-  const row = marketDb.prepare(`SELECT 1 FROM nse_holidays LIMIT 1`).get();
-  holidaysPopulated = !!row;
-  return holidaysPopulated;
-}
-
+/**
+ * True if `dateStr` is a logged NSE trading holiday. Queries directly with no
+ * "is the table populated" cache — nse_holidays only ever holds a few dozen
+ * rows, so there's no performance concern, and a cache here previously
+ * risked permanently caching a stale "empty table" result for the rest of
+ * the process's lifetime even after holidayCalendarService populated it.
+ */
 export function isHoliday(dateStr: string): boolean {
-  if (!nseHolidaysPopulated()) return false; // empty table — don't hard-fail, just skip this check
   const row = marketDb.prepare(`SELECT 1 FROM nse_holidays WHERE date = ?`).get(dateStr);
   return !!row;
 }
