@@ -18,6 +18,10 @@ author = "agent"
 task = "workflow.run"
 args = "Backend API server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
 [[workflows.workflow]]
 name = "Backend API server"
 author = "agent"
@@ -29,6 +33,15 @@ waitForPort = 3001
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/bharatscan run dev"
+waitForPort = 5000
 
 [[ports]]
 localPort = 3001
@@ -62,3 +75,8 @@ build = ["bash", "-c", "pnpm install && pnpm --filter @workspace/server run buil
 [userenv]
 
 [userenv.shared]
+BASE_PATH = "/"
+DB_DIR = "./data"
+NODE_ENV = "development"
+PORT = "5000"
+SERVER_PORT = "3001"
