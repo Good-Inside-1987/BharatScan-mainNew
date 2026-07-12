@@ -45,14 +45,14 @@ export function Sidebar() {
           <img
             src={photo}
             alt={name}
-            className="h-7 w-7 rounded-full object-cover shrink-0 ring-1 ring-border"
+            className="h-9 w-9 rounded-full object-cover shrink-0 ring-2 ring-border"
           />
         ) : (
-          <div className="h-7 w-7 rounded-full shrink-0 bg-gradient-primary text-primary-foreground flex items-center justify-center text-[11px] font-semibold ring-1 ring-border">
+          <div className="h-9 w-9 rounded-full shrink-0 bg-gradient-primary text-primary-foreground flex items-center justify-center text-sm font-bold ring-2 ring-border">
             {initial}
           </div>
         )}
-        <span className="text-[8px] font-medium leading-none text-foreground/80 truncate max-w-full">
+        <span className="text-[9px] font-bold leading-none text-foreground truncate max-w-full">
           {name}
         </span>
       </div>
