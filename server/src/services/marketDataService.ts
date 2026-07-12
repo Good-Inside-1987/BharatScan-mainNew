@@ -203,9 +203,11 @@ function noAdapterReason(): AuthenticationError | SessionExpiredError {
 }
 
 // ── Daily request budget ──────────────────────────────────────────────────────
-
-let dailyCount = 0;
-let budgetDate = todayIST();
+// Persisted in market.db (request_budget table) rather than an in-memory
+// variable — on Replit the process can sleep/wake (and thus restart) many
+// times within a single calendar day, which would otherwise silently reset
+// the counter and let backfill blow past the broker's real rate limit even
+// though the dashboard shows budget remaining.
 
 // ── Live quote cache-hit / REST-fallback diagnostics ───────────────────────────
 
@@ -241,15 +243,27 @@ function todayIST(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: config.timezone });
 }
 
-/** Increments the daily counter and returns true when budget is still available. */
+/** Ensures a request_budget row exists for the given IST date (starts at 0). */
+function ensureBudgetRow(date: string): void {
+  marketDb
+    .prepare(`INSERT INTO request_budget (date, count) VALUES (?, 0) ON CONFLICT(date) DO NOTHING`)
+    .run(date);
+}
+
+/** Current persisted count for the given IST date (creating the row if needed). */
+function getBudgetCount(date: string): number {
+  ensureBudgetRow(date);
+  const row = marketDb
+    .prepare(`SELECT count FROM request_budget WHERE date = ?`)
+    .get(date) as { count: number };
+  return row.count;
+}
+
+/** Increments the persisted daily counter and returns true when budget is still available. */
 function consumeBudget(): boolean {
   const today = todayIST();
-  if (today !== budgetDate) {
-    dailyCount = 0;
-    budgetDate = today;
-  }
-  if (dailyCount >= config.backfillDailyRequestBudget) return false;
-  dailyCount++;
+  if (getBudgetCount(today) >= config.backfillDailyRequestBudget) return false;
+  marketDb.prepare(`UPDATE request_budget SET count = count + 1 WHERE date = ?`).run(today);
   return true;
 }
 
@@ -519,7 +533,7 @@ async function runWorker(): Promise<void> {
         console.warn(
           "[marketDataService] Daily request budget (%d) exhausted — backfill paused until %s IST",
           config.backfillDailyRequestBudget,
-          budgetDate
+          todayIST()
         );
         break; // tasks remain in queue; worker exits until budget resets
       }
@@ -709,6 +723,8 @@ export async function getLiveQuotes(symbols: string[]): Promise<Quote[]> {
  * Exposed through GET /api/market/status for operator monitoring.
  */
 export function getServiceStats() {
+  const today = todayIST();
+  const dailyCount = getBudgetCount(today);
   const remainingBudgetToday = Math.max(0, config.backfillDailyRequestBudget - dailyCount);
 
   // Group queued chunks by (symbol, resolution) so the dashboard can show
@@ -732,7 +748,7 @@ export function getServiceStats() {
     dailyRequestsUsed:  dailyCount,
     dailyRequestBudget: config.backfillDailyRequestBudget,
     remainingBudgetToday,
-    budgetResetDate:    budgetDate,
+    budgetResetDate:    today,
     queueDepth:         queue.length,
     workerRunning,
     adaptersCached:     adapterCache.size,

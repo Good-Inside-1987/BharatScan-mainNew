@@ -177,6 +177,17 @@ export function initMarketDb(db: DatabaseSync): void {
       updated_at     TEXT NOT NULL,
       PRIMARY KEY (symbol, resolution)
     );
+
+    -- ── Daily broker request budget (persisted so it survives restarts) ───
+    -- Replit's free-tier compute cap means the process can sleep/wake many
+    -- times within a single calendar day; an in-memory counter would reset
+    -- on every restart and could blow past the broker's real rate limit
+    -- even though the dashboard shows budget remaining. One row per IST
+    -- calendar date — see consumeBudget() in marketDataService.ts.
+    CREATE TABLE IF NOT EXISTS request_budget (
+      date  TEXT PRIMARY KEY,
+      count INTEGER NOT NULL DEFAULT 0
+    );
   `);
 
   // Migrate any older backfill_progress schema that used earliest/latest

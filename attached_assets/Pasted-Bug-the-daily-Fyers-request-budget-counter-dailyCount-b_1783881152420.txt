@@ -1,0 +1,56 @@
+Bug: the daily Fyers request budget counter (dailyCount / budgetDate in 
+server/src/services/marketDataService.ts) is held in plain in-memory 
+module variables, not persisted anywhere. On Replit specifically, where 
+the app is expected to sleep/wake within its free-tier compute cap, every 
+process restart silently resets dailyCount to 0 — meaning the app's 
+internal "protect Fyers' real rate limit" budget can be reset several 
+times within a single calendar day just from ordinary sleep/wake cycles, 
+independent of config.backfillDailyRequestBudget's intent of one clean 
+per-day allowance. This risks exceeding Fyers' actual server-side rate 
+limits even though BharatScan's own dashboard shows budget remaining.
+
+Fix, in server/src/services/marketDataService.ts:
+
+1. Add a small persisted counter in market.db — either a new one-row 
+   table (e.g. `request_budget(date TEXT PRIMARY KEY, count INTEGER NOT 
+   NULL DEFAULT 0)`) or reuse an existing key-value/meta table if one 
+   already exists in this codebase for similar single-value settings 
+   (check db.ts / schema files for a pattern like app_meta before adding 
+   a new table — prefer consistency over a new table if a suitable one 
+   exists).
+
+2. Replace the in-memory dailyCount/budgetDate pair in consumeBudget() 
+   with reads/writes against that persisted row:
+   - On each consumeBudget() call, read today's row (creating it with 
+     count=0 if it doesn't exist for today's date — this is the natural 
+     place for the "date changed" reset to happen, replacing the current 
+     `if (today !== budgetDate)` in-memory check).
+   - Increment and persist the count atomically (a single UPDATE ... SET 
+     count = count + 1 WHERE date = ? is fine given node:sqlite's 
+     synchronous nature — no separate read-then-write race window).
+   - Return false (budget exhausted) if count >= 
+     config.backfillDailyRequestBudget, same threshold logic as today.
+
+3. Update getServiceStats() (used by the Backfill Dashboard and 
+   runSymbolLoop's budget checks) to read remainingBudgetToday from the 
+   same persisted source, so the UI and the sync jobs' in-loop budget 
+   checks (server/src/services/syncJobs.ts's runSymbolLoop) stay 
+   consistent with the persisted count rather than a stale in-memory 
+   value after a restart mid-run.
+
+4. Keep this cheap — this is a counter incremented potentially hundreds 
+   of times per sync run, so avoid anything more expensive than a single 
+   parameterized UPDATE/SELECT per call. Don't introduce a write-behind 
+   queue or batching for this; node:sqlite's synchronous prepared 
+   statements are already fast enough here.
+
+After this change, verify: start the server, consume a few budget units 
+(e.g. via /sync/eod/test against a real trading date once one is 
+available), restart the server, and confirm getServiceStats() /  the 
+Backfill Dashboard still shows the previously-consumed count rather than 
+resetting to 0 — then confirm it does correctly reset once the IST 
+calendar date actually rolls over.
+
+Do not change config.backfillDailyRequestBudget's value or the 500/4000 
+Replit-vs-Oracle split — this is purely about making the counter survive 
+process restarts within the same day.
