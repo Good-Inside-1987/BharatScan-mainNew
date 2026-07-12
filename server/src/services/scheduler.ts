@@ -26,7 +26,14 @@ let schedulerActive = false;
 // not handled by a separate PM2 process (see config.runSchedulerInProcess).
 export function startScheduler(): void {
   if (!config.runSchedulerInProcess) return;
+  registerAllCronJobs();
+}
 
+// Registers the startup catch-up run and all cron.schedule(...) jobs.
+// Called by startScheduler() (guarded by config.runSchedulerInProcess, for
+// Replit/local/Electron) and unconditionally by the standalone Oracle
+// scheduler process (server/src/scheduler/standalone.ts).
+export function registerAllCronJobs(): void {
   // Catch up on any missed trading days (server was asleep/offline, or a job
   // silently failed) BEFORE the normal cron jobs are registered below, so a
   // startup catch-up run never overlaps one about to fire at its normal time.
@@ -204,6 +211,12 @@ export function getSchedulerStatus() {
   return {
     active: schedulerActive,
     runSchedulerInProcess: config.runSchedulerInProcess,
+    // On Oracle, cron jobs are registered by a separate PM2 process
+    // (server/src/scheduler/standalone.ts), not this one. `active` stays
+    // false here by design — this flag tells the dashboard why, so it can
+    // render "Running in separate scheduler process" instead of implying
+    // jobs aren't running at all.
+    runsInSeparateProcess: config.envLabel === "oracle",
     timezone: config.timezone,
     liveOptions: getAtmTrackerStatus(),
     catchUp: getCatchUpStatus(),

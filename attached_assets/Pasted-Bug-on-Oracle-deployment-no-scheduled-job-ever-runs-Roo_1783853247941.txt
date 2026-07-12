@@ -1,0 +1,67 @@
+Bug: on Oracle deployment, no scheduled job ever runs.
+
+Root cause: server/src/config/environment.ts sets 
+`runSchedulerInProcess: envLabel !== "oracle"` — meaning on Oracle the cron 
+jobs are deliberately NOT registered inside the main web server process. 
+Instead, ecosystem.config.js defines a separate PM2 process 
+('bharatscan-scheduler') pointing at `server/dist/scheduler/standalone.js`, 
+and root package.json has a `start:scheduler` script pointing at the same 
+path. That file does not exist anywhere in server/src — there is no 
+server/src/scheduler/ directory at all. On Oracle, PM2 will crash-loop that 
+process forever with "Cannot find module", and every automated job (EOD 
+sync, intraday sync, options sync, F&O ban list, FII/DII + PE ratio, 
+cleanup, live feed open/close, ATM option tracking, catch-up sync) silently 
+never fires.
+
+Fix, in two parts:
+
+1. Refactor server/src/services/scheduler.ts so the actual cron.schedule() 
+   registration logic (currently everything inside startScheduler() after 
+   the `if (!config.runSchedulerInProcess) return;` guard, including the 
+   startup catch-up call and all cron.schedule(...) blocks) is pulled out 
+   into its own exported function, e.g. `registerAllCronJobs()`. 
+   startScheduler() should keep the runSchedulerInProcess guard exactly as 
+   it is today (unchanged behavior for Replit and local/Electron — no 
+   regression there), then call registerAllCronJobs() when the guard 
+   passes. Keep `schedulerActive = true` being set at the end of 
+   registration either way.
+
+2. Create server/src/scheduler/standalone.ts — a headless entry point for 
+   the Oracle-only PM2 process. It must, in order:
+   a. Import "../loadEnv.js" first, exactly like server/src/index.ts does, 
+      so .env is loaded before config.ts is read (Oracle doesn't use 
+      Replit Secrets).
+   b. Import "../db.js" (for its side effect of running migrations on 
+      app.db/market.db/live.db) — same "must be imported first" comment 
+      and ordering as index.ts.
+   c. Import and call registerAllCronJobs() from "../services/scheduler.js" 
+      UNCONDITIONALLY — ignore config.runSchedulerInProcess entirely here, 
+      since this file's whole purpose is to be the dedicated process that 
+      runs cron jobs on Oracle.
+   d. Log a clear startup line (e.g. "[scheduler-standalone] Started — 
+      registered N cron jobs, timezone=Asia/Kolkata") so `pm2 logs 
+      bharatscan-scheduler` immediately confirms it's alive.
+   e. Do NOT start Express or call app.listen() — this process only runs 
+      cron jobs, it never serves HTTP.
+   f. Add a process-level unhandledRejection/uncaughtException handler that 
+      logs and exits non-zero, so PM2's restart policy can detect real 
+      crashes distinctly from a clean run.
+
+After the change, confirm `pnpm run build` (which runs `tsc` in server/) 
+emits server/dist/scheduler/standalone.js automatically — it's just another 
+file under server/src, so no extra build config should be needed, but 
+verify the compiled output actually lands there.
+
+Also check server/src/routes/marketData.ts's getSchedulerStatus()-backed 
+endpoint (used by the Settings dashboard): on Oracle, this endpoint is 
+served by the main web-server process, which will now correctly still 
+NOT run cron jobs itself (schedulerActive stays false there, by design). 
+Update the status response so it doesn't look like a bug on Oracle — e.g. 
+add a field like `runsInSeparateProcess: envLabel === "oracle"` (or 
+similar) so the dashboard can render something like "Running in separate 
+scheduler process" instead of implying jobs aren't running at all.
+
+Do not change any cron expressions, job logic, budget logic, or the 
+runSchedulerInProcess gate's effect on Replit/local/Electron — this is 
+purely about making the Oracle path actually start the jobs it was always 
+supposed to start.

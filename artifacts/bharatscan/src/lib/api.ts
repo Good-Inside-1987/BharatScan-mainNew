@@ -130,6 +130,7 @@ export interface ApiCatchUpStatus {
 export interface ApiSchedulerStatus {
   active: boolean;
   runSchedulerInProcess: boolean;
+  runsInSeparateProcess: boolean;
   timezone: string;
   jobs: {
     liveOpen: { expression: string; nextRun: string | null };

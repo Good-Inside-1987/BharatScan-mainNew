@@ -1361,9 +1361,13 @@ export default function Settings() {
                 {!schedulerLoading && schedulerStatus && (
                   <>
                     <div className="flex items-center gap-2 pb-1">
-                      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${schedulerStatus.active ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
-                      <span className={`text-[10px] font-medium ${schedulerStatus.active ? "text-emerald-400" : "text-muted-foreground"}`}>
-                        {schedulerStatus.active ? "Scheduler active in this process" : "Not running in this process"}
+                      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${schedulerStatus.active || schedulerStatus.runsInSeparateProcess ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
+                      <span className={`text-[10px] font-medium ${schedulerStatus.active || schedulerStatus.runsInSeparateProcess ? "text-emerald-400" : "text-muted-foreground"}`}>
+                        {schedulerStatus.active
+                          ? "Scheduler active in this process"
+                          : schedulerStatus.runsInSeparateProcess
+                          ? "Running in separate scheduler process"
+                          : "Not running in this process"}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
