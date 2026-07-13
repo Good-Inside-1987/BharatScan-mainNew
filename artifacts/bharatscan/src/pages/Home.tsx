@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore, useCallback } from "react";
+import { useMemo, useState, useEffect, useSyncExternalStore, useCallback } from "react";
 import { TrendingUp, TrendingDown, Activity, BarChart2, Clock, Upload, Database, Copy, ChevronDown, Check } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import {
@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import type { SymbolHistory } from "@/lib/csv";
 import type { OptionsDataset } from "@/lib/options";
 import { resampleBars, type Timeframe } from "@/lib/timeframe";
+import { apiGetMarketQuotes, type ApiLiveQuote } from "@/lib/api";
 
 // ---- master index definitions (all 7 available options) ---------------------
 
@@ -23,6 +24,7 @@ interface IndexCardDef {
   label: string;
   aliases: string[];
   futuresSymbol?: string;
+  fyersIndexSymbol?: string;
 }
 
 const ALL_INDEX_DEFS: IndexCardDef[] = [
@@ -31,18 +33,21 @@ const ALL_INDEX_DEFS: IndexCardDef[] = [
     label: "Nifty 50",
     aliases: ["NIFTY", "NIFTY50", "NIFTY 50", "NIFTY-50"],
     futuresSymbol: "NIFTY",
+    fyersIndexSymbol: "NSE:NIFTY50-INDEX",
   },
   {
     key: "BANKNIFTY",
     label: "Bank Nifty",
     aliases: ["BANKNIFTY", "NIFTYBANK", "NIFTY BANK", "NIFTY-BANK"],
     futuresSymbol: "BANKNIFTY",
+    fyersIndexSymbol: "NSE:NIFTYBANK-INDEX",
   },
   {
     key: "FINNIFTY",
     label: "Fin Nifty",
     aliases: ["FINNIFTY", "NIFTYFIN", "NIFTY FIN", "FINNIFTY50"],
     futuresSymbol: "FINNIFTY",
+    fyersIndexSymbol: "NSE:FINNIFTY-INDEX",
   },
   {
     key: "NIFTYNXT50",
@@ -55,11 +60,13 @@ const ALL_INDEX_DEFS: IndexCardDef[] = [
     label: "Midcap Nifty",
     aliases: ["MIDCPNIFTY", "NIFTYMIDCAP", "MIDCAP NIFTY", "NIFTY MIDCAP"],
     futuresSymbol: "MIDCPNIFTY",
+    fyersIndexSymbol: "NSE:MIDCPNIFTY-INDEX",
   },
   {
     key: "SENSEX",
     label: "Sensex",
     aliases: ["SENSEX", "BSE SENSEX", "BSESENSEX", "S&P BSE SENSEX"],
+    fyersIndexSymbol: "BSE:SENSEX-INDEX",
   },
   {
     key: "INDIAVIX",
@@ -389,6 +396,7 @@ function IndexCard({
   asOfOptionsDate,
   homeIndexSource,
   onChangeSlot,
+  liveQuote,
 }: {
   def: IndexCardDef;
   slotIndex: number;
@@ -398,8 +406,14 @@ function IndexCard({
   asOfOptionsDate: string | null;
   homeIndexSource: "futures" | "spot";
   onChangeSlot: (slotIndex: number, key: string) => void;
+  liveQuote?: ApiLiveQuote;
 }) {
   const { data, sourceLabel } = useMemo(() => {
+    if (liveQuote) {
+      const pct = liveQuote.close > 0 ? ((liveQuote.ltp - liveQuote.close) / liveQuote.close) * 100 : 0;
+      const pts = liveQuote.close > 0 ? liveQuote.ltp - liveQuote.close : 0;
+      return { data: { value: liveQuote.ltp, pct, pts, found: true }, sourceLabel: "Live" };
+    }
     if (def.futuresSymbol && homeIndexSource === "futures") {
       const fut = lookupFuturesIndex(optionsData, def.futuresSymbol, asOfOptionsDate);
       if (fut.found) return { data: fut, sourceLabel: "Futures" };
@@ -415,7 +429,7 @@ function IndexCard({
       return { data: lookupIndex(histories, def.aliases, latestDate), sourceLabel: "Spot" };
     }
     return { data: lookupIndex(histories, def.aliases, latestDate), sourceLabel: null };
-  }, [histories, def.aliases, def.futuresSymbol, latestDate, optionsData, asOfOptionsDate, homeIndexSource]);
+  }, [liveQuote, histories, def.aliases, def.futuresSymbol, latestDate, optionsData, asOfOptionsDate, homeIndexSource]);
 
   const pcr = useMemo(
     () => def.futuresSymbol ? computePCR(optionsData, def.futuresSymbol, asOfOptionsDate) : null,
@@ -739,6 +753,40 @@ export default function Home() {
 
   const [lastCopied, setLastCopied] = useState<string | null>(null);
 
+  // ── Live index quotes (Fyers real-time feed, when broker is connected) ──────
+  const [liveIndexQuotes, setLiveIndexQuotes] = useState<Record<string, ApiLiveQuote>>({});
+
+  useEffect(() => {
+    const fyersSymbols = ALL_INDEX_DEFS
+      .filter((d) => d.fyersIndexSymbol)
+      .map((d) => d.fyersIndexSymbol!);
+    if (!fyersSymbols.length) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const { quotes } = await apiGetMarketQuotes(fyersSymbols);
+        if (cancelled) return;
+        const bySymbol = new Map(quotes.map((q) => [q.symbol, q]));
+        const byKey: Record<string, ApiLiveQuote> = {};
+        for (const d of ALL_INDEX_DEFS) {
+          if (d.fyersIndexSymbol && bySymbol.has(d.fyersIndexSymbol)) {
+            byKey[d.key] = bySymbol.get(d.fyersIndexSymbol)!;
+          }
+        }
+        setLiveIndexQuotes(byKey);
+      } catch {
+        // No broker connected, market closed, or a transient error —
+        // leave existing state as-is so IndexCard falls back to
+        // Futures/Spot below rather than showing a jarring blank.
+      }
+    };
+
+    poll();
+    const id = setInterval(poll, 10_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
   // ── Timeframe selector per universe pair ─────────────────────────────────────
   const [nseCashTf, setNseCashTf] = useState<Timeframe>("daily");
   const [niftyTf, setNiftyTf] = useState<Timeframe>("daily");
@@ -903,6 +951,7 @@ export default function Home() {
                 asOfOptionsDate={asOfOptionsDate}
                 homeIndexSource={homeIndexSource}
                 onChangeSlot={setSlot}
+                liveQuote={liveIndexQuotes[def.key]}
               />
             ))}
           </div>

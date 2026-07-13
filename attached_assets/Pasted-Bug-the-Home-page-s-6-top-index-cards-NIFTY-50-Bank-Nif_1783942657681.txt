@@ -1,0 +1,129 @@
+Bug: the Home page's 6 top index cards (NIFTY 50, Bank Nifty, Fin Nifty,
+Midcap Nifty, Nifty Next 50, Sensex) always show "Not in CSV" even with
+Fyers connected and the market live. Root cause: IndexCard in
+artifacts/bharatscan/src/pages/Home.tsx only ever resolves its price from
+`histories` (CSV-upload or the Scanner's ohlcv_daily DB-bridge) via
+lookupIndex(), or from `optionsData` via lookupFuturesIndex() — both are
+end-of-day/historical sources. Neither the automated symbol-master sync
+nor the EOD/intraday pipeline ever includes the raw index instruments
+themselves (only individual equity/F&O stocks get synced), so these 6
+cards have no automated data source at all — a leftover from the app's
+original pre-automation, CSV-only design (hence the literal "Not in CSV"
+label).
+
+The backend already has real-time prices for 5 of these 6 indices
+flowing in memory: liveOptionsTracker.ts subscribes each configured
+index's underlying Fyers symbol (e.g. NSE:NIFTY50-INDEX) as part of ATM
+option tracking, cached via liveFeedService's getLiveQuote(). The generic
+GET /api/market-data/quotes route (backed by getLiveQuotes()) already
+exposes this, and the frontend even has an unused helper for it —
+apiGetMarketQuotes() in lib/api.ts — that was never wired to anything.
+This fix is almost entirely additive: no new backend endpoint needed.
+
+Fix, in artifacts/bharatscan/src/pages/Home.tsx:
+
+1. Add a `fyersIndexSymbol` field to the IndexCardDef interface, and set
+   it for the 5 indices already proven to work via this exact symbol
+   string elsewhere in the codebase (liveOptionsTracker.ts's own
+   UNDERLYING_TO_FYERS map):
+
+     NIFTY:      "NSE:NIFTY50-INDEX"
+     BANKNIFTY:  "NSE:NIFTYBANK-INDEX"
+     FINNIFTY:   "NSE:FINNIFTY-INDEX"
+     SENSEX:     "BSE:SENSEX-INDEX"
+     MIDCPNIFTY: "NSE:MIDCPNIFTY-INDEX"
+
+   Leave NIFTYNXT50 and INDIAVIX without a fyersIndexSymbol for now —
+   their correct Fyers ticker strings aren't already proven elsewhere in
+   this codebase (they have no options contracts, so nothing already
+   depends on getting their symbol right). Verify the correct strings
+   against Fyers' actual symbol master or quote API before adding them
+   the same way — don't guess at the naming convention.
+
+2. Import `apiGetMarketQuotes` and its `ApiLiveQuote` type from
+   "@/lib/api" (already defined, just unused today).
+
+3. In the main Home() component, alongside the existing `useData()` /
+   `useHomeIndexSource()` / `useIndexSlots()` calls:
+
+     const [liveIndexQuotes, setLiveIndexQuotes] = useState<Record<string, ApiLiveQuote>>({});
+
+     useEffect(() => {
+       const fyersSymbols = ALL_INDEX_DEFS
+         .filter((d) => d.fyersIndexSymbol)
+         .map((d) => d.fyersIndexSymbol!);
+       if (!fyersSymbols.length) return;
+
+       let cancelled = false;
+       const poll = async () => {
+         try {
+           const { quotes } = await apiGetMarketQuotes(fyersSymbols);
+           if (cancelled) return;
+           const bySymbol = new Map(quotes.map((q) => [q.symbol, q]));
+           const byKey: Record<string, ApiLiveQuote> = {};
+           for (const d of ALL_INDEX_DEFS) {
+             if (d.fyersIndexSymbol && bySymbol.has(d.fyersIndexSymbol)) {
+               byKey[d.key] = bySymbol.get(d.fyersIndexSymbol)!;
+             }
+           }
+           setLiveIndexQuotes(byKey);
+         } catch {
+           // No broker connected, market closed, or a transient error —
+           // leave existing state as-is so IndexCard falls back to
+           // Futures/Spot below rather than showing a jarring blank.
+         }
+       };
+
+       poll();
+       const id = setInterval(poll, 10_000);
+       return () => { cancelled = true; clearInterval(id); };
+     }, []);
+
+   Fetch all 5 known index symbols regardless of which 6 are in the
+   user's active slots — slot-switching is instant then, with no refetch
+   needed, and the constant list is tiny.
+
+4. Pass it down at the render call site (the `<IndexCard ... />` inside
+   the `activeSlotDefs.map(...)` block):
+
+     <IndexCard
+       ...
+       liveQuote={liveIndexQuotes[def.key]}
+     />
+
+5. In IndexCard's props type, add `liveQuote?: ApiLiveQuote`. In its
+   data-resolution useMemo, check it first, before the existing
+   futures/spot branches:
+
+     const { data, sourceLabel } = useMemo(() => {
+       if (liveQuote) {
+         const pct = liveQuote.close > 0 ? ((liveQuote.ltp - liveQuote.close) / liveQuote.close) * 100 : 0;
+         const pts = liveQuote.close > 0 ? liveQuote.ltp - liveQuote.close : 0;
+         return { data: { value: liveQuote.ltp, pct, pts, found: true }, sourceLabel: "Live" };
+       }
+       if (def.futuresSymbol && homeIndexSource === "futures") {
+         // ...unchanged...
+       }
+       // ...rest unchanged...
+     }, [liveQuote, histories, def.aliases, def.futuresSymbol, latestDate, optionsData, asOfOptionsDate, homeIndexSource]);
+
+   liveQuote.close is Fyers' actual previous-day close (verified in
+   server/src/adapters/fyers.ts — mapped from prev_close_price), so this
+   pct/pts math is exactly equivalent to what lookupIndex/
+   lookupFuturesIndex already compute, just from a live tick instead of
+   a stored bar.
+
+Do not change lookupIndex(), lookupFuturesIndex(), or the existing
+Futures/Spot toggle logic — this only adds a higher-priority "Live" tier
+above them. When the broker's disconnected or a symbol has no live quote
+yet, it falls through to exactly the same Futures/Spot/"Not in CSV"
+behavior as today, unchanged.
+
+Test: with the broker connected during market hours, confirm all 5
+covered index cards switch to showing "(Live)" instead of "Not in CSV"
+within ~10 seconds of the page loading, with a value that moves over
+subsequent polls. Then disconnect the broker (or test after market
+close) and confirm they cleanly fall back to whatever Futures/Spot/"Not
+in CSV" state they'd show today, with no console errors from the failed
+fetch. NIFTYNXT50 and INDIAVIX should remain "Not in CSV" until their
+Fyers symbols are separately verified and added.
