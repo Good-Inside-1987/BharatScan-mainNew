@@ -33,6 +33,35 @@ import {
 } from "./liveFeedService.js";
 import { getAuthenticatedAdapter } from "./marketDataService.js";
 import type { BrokerAdapter } from "../adapters/types.js";
+import { marketDb } from "../db.js";
+
+// ── Per-day expiry cache ─────────────────────────────────────────────────────
+//
+// The nearest expiry for a given underlying does not change within a trading
+// day, but initAtmOptionSubscriptions() now runs on every reconcileLiveFeedState()
+// restart during market hours (not just once at a fixed 9 AM), so a day with
+// several restarts (Replit sleep/wake, redeploys, manual testing) would
+// otherwise re-call getOptionExpiries() redundantly each time. Cached here,
+// one row per (underlying, date), in the same one-row-per-day style as
+// request_budget in marketDataService.ts.
+
+/** Cached expiry for `underlying` on `date`, or null if not yet resolved today. */
+function getCachedExpiry(underlying: string, date: string): string | null {
+  const row = marketDb
+    .prepare(`SELECT expiry FROM atm_expiry_cache WHERE underlying = ? AND date = ?`)
+    .get(underlying, date) as { expiry: string } | undefined;
+  return row?.expiry ?? null;
+}
+
+/** Persists the resolved expiry for `underlying` on `date`. */
+function setCachedExpiry(underlying: string, date: string, expiry: string): void {
+  marketDb
+    .prepare(
+      `INSERT INTO atm_expiry_cache (underlying, date, expiry) VALUES (?, ?, ?)
+       ON CONFLICT(underlying, date) DO UPDATE SET expiry = excluded.expiry`
+    )
+    .run(underlying, date, expiry);
+}
 
 // ── Budget constants ──────────────────────────────────────────────────────────
 
@@ -288,23 +317,36 @@ export async function initAtmOptionSubscriptions(): Promise<void> {
         );
       }
 
-      // Fetch expiries
-      let expiries: string[];
-      try {
-        expiries = await getExpiries.call(adapter as BrokerAdapter, fyersSymbol);
-      } catch (err) {
-        console.error(
-          "[liveOptionsTracker] Failed to fetch expiries for %s: %s",
-          uName,
-          err instanceof Error ? err.message : String(err)
+      // Resolve nearest expiry — reuse today's cached value if this underlying
+      // was already resolved earlier today (e.g. an earlier restart), since
+      // the correct expiry doesn't change within a trading day.
+      let expiry: string | null = getCachedExpiry(uName, today);
+      if (expiry) {
+        console.log(
+          "[liveOptionsTracker] Using cached expiry %s for %s (already resolved today)",
+          expiry,
+          uName
         );
-        continue;
-      }
+      } else {
+        let expiries: string[];
+        try {
+          expiries = await getExpiries.call(adapter as BrokerAdapter, fyersSymbol);
+        } catch (err) {
+          console.error(
+            "[liveOptionsTracker] Failed to fetch expiries for %s: %s",
+            uName,
+            err instanceof Error ? err.message : String(err)
+          );
+          continue;
+        }
 
-      const expiry = pickNearestExpiry(expiries, today);
-      if (!expiry) {
-        console.warn("[liveOptionsTracker] No expiries returned for %s — skipping", uName);
-        continue;
+        expiry = pickNearestExpiry(expiries, today);
+        if (!expiry) {
+          console.warn("[liveOptionsTracker] No expiries returned for %s — skipping", uName);
+          continue;
+        }
+
+        setCachedExpiry(uName, today, expiry);
       }
 
       // Fetch option chain

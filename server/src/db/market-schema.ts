@@ -188,6 +188,18 @@ export function initMarketDb(db: DatabaseSync): void {
       date  TEXT PRIMARY KEY,
       count INTEGER NOT NULL DEFAULT 0
     );
+
+    -- One-row-per-day cache of the resolved nearest option expiry for each
+    -- underlying. The correct expiry for a given underlying does not change
+    -- within a trading day, so initAtmOptionSubscriptions() checks this
+    -- before calling getOptionExpiries() again on every restart (Replit
+    -- sleep/wake, redeploys, manual testing) — see liveOptionsTracker.ts.
+    CREATE TABLE IF NOT EXISTS atm_expiry_cache (
+      underlying TEXT NOT NULL,
+      date       TEXT NOT NULL,
+      expiry     TEXT NOT NULL,
+      PRIMARY KEY (underlying, date)
+    );
   `);
 
   // Migrate any older backfill_progress schema that used earliest/latest
