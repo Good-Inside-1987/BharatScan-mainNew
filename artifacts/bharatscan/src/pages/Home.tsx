@@ -79,7 +79,7 @@ const ALL_INDEX_BY_KEY = new Map(ALL_INDEX_DEFS.map((d) => [d.key, d]));
 
 // ---- default 4 slots --------------------------------------------------------
 
-const DEFAULT_SLOTS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "SENSEX"];
+const DEFAULT_SLOTS = ["NIFTY", "SENSEX", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "INDIAVIX"];
 const LS_SLOTS_KEY = "bharatscan:home-index-slots";
 const LS_HOME_INDEX_KEY = "bharatscan:home-index-source";
 
