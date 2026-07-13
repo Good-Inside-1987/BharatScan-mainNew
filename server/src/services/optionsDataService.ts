@@ -15,6 +15,7 @@ import { marketDb } from "../db.js";
 import { config } from "../config/environment.js";
 import { getAuthenticatedAdapter, throttleCall, checkAndConsumeBudget, getServiceStats } from "./marketDataService.js";
 import { startSyncLog, finishSyncLog, todayIST } from "./syncJobs.js";
+import { isTradingDay } from "./tradingCalendar.js";
 import type { Bar, BrokerAdapter } from "../adapters/types.js";
 
 // ── Underlying → Fyers index symbol ──────────────────────────────────────────
@@ -379,7 +380,14 @@ async function syncOptionsForUnderlying(
     try {
       const bars = await throttleCall(() => adapter.getHistoricalData(item.symbol, "1", date, date));
       upsertOptionsBars(uName, expiry, item.strike, item.type, bars);
-      completed++;
+      if (bars.length > 0) {
+        completed++;
+      } else {
+        // No candle for this date (e.g. contract didn't trade) — not a
+        // failure, but not "completed" data either. Count it alongside
+        // failed for visibility without inflating the completed count.
+        failed++;
+      }
     } catch (err) {
       failed++;
       console.error("[optionsDataService] ✗ %s: %s", item.symbol, err instanceof Error ? err.message : String(err));
@@ -471,6 +479,12 @@ export async function runOptionsSyncJob(
     if (getServiceStats().remainingBudgetToday <= 0) {
       console.warn("[optionsDataService] Nightly options sync skipped — daily request budget already exhausted");
       finishSyncLog(logId, "completed", { completed: 0, skippedBudget: 0, failed: 0 }, "Daily request budget already exhausted");
+      return { completed: 0, failed: 0, skippedBudget: 0 };
+    }
+
+    if (!isTradingDay(date)) {
+      console.log("[optionsDataService] %s is not a trading day — skipping options sync, 0 budget spent", date);
+      finishSyncLog(logId, "completed", { completed: 0, skippedBudget: 0, failed: 0 });
       return { completed: 0, failed: 0, skippedBudget: 0 };
     }
 

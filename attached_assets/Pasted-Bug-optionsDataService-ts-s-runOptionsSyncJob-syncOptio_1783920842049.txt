@@ -1,0 +1,35 @@
+Bug: optionsDataService.ts's runOptionsSyncJob() / syncOptionsForUnderlying() 
+have no trading-day guard, unlike runEodSyncJob() / runIntradaySyncJob() in 
+syncJobs.ts, which both check isTradingDay() (from the shared 
+tradingCalendar.ts module) before spending any budget. This means 
+/sync/options/test (and potentially the real 5 PM cron itself, if Fyers' 
+option-chain endpoints don't outright reject non-trading-day requests) can 
+burn the entire daily budget fetching empty candles one strike at a time, 
+while syncOptionsForUnderlying's completed++ on every non-throwing call 
+(even with bars.length === 0) means this shows up as a clean "completed: N" 
+in the sync log rather than a visible failure.
+
+Fix, in server/src/services/optionsDataService.ts:
+
+1. At the top of runOptionsSyncJob(), right after the existing 
+   "no broker connected" and "budget already exhausted" early-return 
+   checks, add the same guard already used in syncJobs.ts: if 
+   !isTradingDay(date) (import from tradingCalendar.ts), log 
+   "[optionsDataService] {date} is not a trading day — skipping options 
+   sync, 0 budget spent", finishSyncLog with status 'completed' and 
+   all-zero stats, and return early — same pattern as the EOD/intraday fix.
+
+2. In syncOptionsForUnderlying()'s strike loop, only increment completed 
+   when bars.length > 0 — mirror runSymbolLoop()'s distinction in 
+   syncJobs.ts (bars.length > 0 → completed++, else → failed++, with the 
+   same "not literally an error, but not useful data either" comment) so 
+   a genuinely empty response is visible in the stats instead of silently 
+   counting as success.
+
+3. Apply the same isTradingDay() early-return to the /sync/options/test 
+   route in marketData.ts, matching the 409 response pattern already used 
+   by /sync/eod/test and /sync/intraday/test.
+
+Do not change anything about strike range selection, expiry picking, or 
+retention cleanup — this is purely closing the same non-trading-day gap 
+already fixed elsewhere, applied consistently here too.

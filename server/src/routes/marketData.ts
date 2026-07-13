@@ -661,9 +661,14 @@ router.post("/sync/intraday/test", async (req: Request, res: Response) => {
   }
 });
 
-router.post("/sync/options/test", async (_req: Request, res: Response) => {
+router.post("/sync/options/test", async (req: Request, res: Response) => {
+  const date = typeof req.query.date === "string" && req.query.date ? req.query.date : todayIST();
+  if (!isTradingDay(date)) {
+    res.status(409).json({ error: `${date} is not a trading day, nothing to sync` });
+    return;
+  }
   try {
-    const result = await runOptionsSyncJob();
+    const result = await runOptionsSyncJob(date);
     res.json(result);
   } catch (err) {
     console.error("[marketData] /sync/options/test error:", err instanceof Error ? err.message : err);
