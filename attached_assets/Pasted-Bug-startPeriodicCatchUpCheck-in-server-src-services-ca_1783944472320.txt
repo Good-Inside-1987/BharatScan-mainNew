@@ -1,0 +1,76 @@
+Bug: startPeriodicCatchUpCheck() in server/src/services/catchUpScheduler.ts
+only ever registers a setInterval:
+
+    export function startPeriodicCatchUpCheck(): void {
+      if (periodicTimer) return;
+      periodicTimer = setInterval(() => {
+        void runPeriodicCatchUpCheck().catch(...);
+      }, CHECK_INTERVAL_MS);
+    }
+
+A JS setInterval doesn't fire its first callback until the full interval
+(CHECK_INTERVAL_MS = 30 minutes) has already elapsed — it never runs
+immediately on registration. Meanwhile, runStartupCatchUp() (which does
+run immediately on boot) deliberately excludes today from its backlog —
+correctly so, since including today risks racing a cron that's about to
+fire at its normal scheduled time. That leaves runPeriodicCatchUpCheck
+as the only mechanism that ever retries a same-day job — and it can't
+run for up to 30 minutes after startup.
+
+Net effect: restarting or opening the app any time after a job's
+scheduled time (e.g. after 4:00 PM for EOD sync), but before the first
+30-minute interval tick completes, leaves a dead window where nothing
+is checking whether today's sync is overdue — even though
+runPeriodicCatchUpCheck's own logic (hasScheduledTimePassedToday +
+!hasSuccessfulRunForDate) would immediately recognize it as due and run
+it, if only something asked. This is the same "fixed trigger, no
+immediate recovery" bug class that reconcileLiveFeedState() was already
+built to avoid for the live feed connection (it runs once immediately,
+then every N minutes) — it just was never applied to this function too.
+
+Fix, in server/src/services/catchUpScheduler.ts:
+
+    /** Starts the 30-minute periodic same-day retry check. Runs one check
+     *  immediately on registration (covers restarting/opening the app any
+     *  time after a job's scheduled time has already passed, without
+     *  waiting up to a full CHECK_INTERVAL_MS for the first interval tick),
+     *  then continues on the regular interval. Idempotent. */
+    export function startPeriodicCatchUpCheck(): void {
+      if (periodicTimer) return;
+
+      void runPeriodicCatchUpCheck().catch((err) => {
+        console.error(
+          "[catchUpScheduler] Initial periodic check crashed:",
+          err instanceof Error ? err.message : String(err)
+        );
+      });
+
+      periodicTimer = setInterval(() => {
+        void runPeriodicCatchUpCheck().catch((err) => {
+          console.error("[catchUpScheduler] Periodic check crashed:", err instanceof Error ? err.message : String(err));
+        });
+      }, CHECK_INTERVAL_MS);
+    }
+
+This is safe to call immediately regardless of time of day: 
+runPeriodicCatchUpCheck() already only acts on jobs whose
+hasScheduledTimePassedToday() is true and that haven't succeeded yet
+today, so calling it at (say) 11 AM correctly finds nothing due and is a
+no-op — it only does real work when there's genuinely something overdue
+right now. Also unaffected: catchUpInFlight already guards against this
+initial call and runStartupCatchUp() (or an unlucky simultaneous
+interval tick) overlapping, so no new concurrency risk.
+
+Do not change runStartupCatchUp()'s "stop at yesterday" behavior, and do
+not change hasScheduledTimePassedToday() or CHECK_INTERVAL_MS — this is
+purely about making the existing periodic-check logic run once
+immediately in addition to its normal cadence, not changing when a job
+is considered "due."
+
+Test: pick any already-passed scheduled time today (e.g. EOD's 4:00 PM,
+if it's currently after that) with eod_sync not yet successfully run
+today, restart the server, and confirm the console shows
+"[catchUpScheduler] Periodic check: N job(s) due today with no
+successful run yet — retrying" within seconds of startup — not after a
+30-minute wait. Then confirm restarting again before any scheduled time
+has passed today correctly logs nothing due, same as before.

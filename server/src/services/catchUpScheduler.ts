@@ -271,9 +271,21 @@ export async function runPeriodicCatchUpCheck(): Promise<void> {
 
 let periodicTimer: NodeJS.Timeout | null = null;
 
-/** Starts the 30-minute periodic same-day retry check. Idempotent. */
+/** Starts the 30-minute periodic same-day retry check. Runs one check
+ *  immediately on registration (covers restarting/opening the app any
+ *  time after a job's scheduled time has already passed, without
+ *  waiting up to a full CHECK_INTERVAL_MS for the first interval tick),
+ *  then continues on the regular interval. Idempotent. */
 export function startPeriodicCatchUpCheck(): void {
   if (periodicTimer) return;
+
+  void runPeriodicCatchUpCheck().catch((err) => {
+    console.error(
+      "[catchUpScheduler] Initial periodic check crashed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  });
+
   periodicTimer = setInterval(() => {
     void runPeriodicCatchUpCheck().catch((err) => {
       console.error(
