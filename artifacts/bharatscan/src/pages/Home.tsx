@@ -403,8 +403,13 @@ function IndexCard({
     if (def.futuresSymbol && homeIndexSource === "futures") {
       const fut = lookupFuturesIndex(optionsData, def.futuresSymbol, asOfOptionsDate);
       if (fut.found) return { data: fut, sourceLabel: "Futures" };
+      // Futures is the user's preferred source, but no futures data was
+      // available (nothing synced yet) — falling back to spot here is a
+      // "no data" degradation, not the user's actual spot preference, so
+      // label it distinctly rather than showing a plain "Spot" that would
+      // be indistinguishable from someone who chose Spot mode on purpose.
       const spot = lookupIndex(histories, def.aliases, latestDate);
-      return { data: spot, sourceLabel: "Spot" };
+      return { data: spot, sourceLabel: "Futures (no data)" };
     }
     if (def.futuresSymbol) {
       return { data: lookupIndex(histories, def.aliases, latestDate), sourceLabel: "Spot" };

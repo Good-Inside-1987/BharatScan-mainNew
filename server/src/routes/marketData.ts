@@ -430,6 +430,156 @@ router.get("/scanner/universe-data", (req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /scanner/options-universe-data?from=YYYY-MM-DD&to=YYYY-MM-DD
+ *
+ * Read-only endpoint that queries options_intraday directly — NO broker
+ * calls, NO budget consumption. Mirrors /scanner/universe-data's contract
+ * for the options side: aggregates intraday option candles (persisted by
+ * the nightly options sync job and the live ATM options tracker) into one
+ * daily bar per (underlying, expiry, strike, option_type, date), shaped as
+ * ApiOptionRow[] so the client can feed it straight into the existing
+ * parseOptionsApiRows() + indexOptions() pipeline — the same one already
+ * used for manual API-sourced option loads.
+ *
+ * options_intraday has no FUT rows (only CE/PE) — the live tracker only
+ * ever subscribes ATM option contracts + the index spot symbol, never a
+ * futures contract — so this endpoint never returns futures bars. That
+ * is an accurate reflection of what's actually persisted, not an
+ * omission: OptionsDataset.futures stays empty from this source.
+ *
+ * change_in_oi isn't stored per-candle (options_intraday only has a
+ * running oi), so it's derived here the same way prevClose is derived in
+ * /scanner/universe-data: a LAG() over the previous day's oi for the same
+ * contract, using a 10-day lookback buffer before `from`.
+ */
+router.get("/scanner/options-universe-data", (req: Request, res: Response) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const twoYearsAgo = (() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 2);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  const rawFrom = req.query.from;
+  const rawTo   = req.query.to;
+  const from = (typeof rawFrom === "string" && DATE_RE.test(rawFrom)) ? rawFrom : twoYearsAgo;
+  const to   = (typeof rawTo   === "string" && DATE_RE.test(rawTo))   ? rawTo   : today;
+
+  if (from > to) {
+    res.status(400).json({ error: "from must not be after to" });
+    return;
+  }
+
+  try {
+    interface RawRow {
+      underlying:    string;
+      expiry:        string;
+      strike:        number;
+      option_type:   string;
+      trade_date:    string;
+      open:          number;
+      high:          number;
+      low:           number;
+      close:         number;
+      volume:        number;
+      oi:            number | null;
+      change_in_oi:  number;
+    }
+
+    // Aggregate intraday candles into one daily bar per contract, per date.
+    // open = first candle of the day, close/oi = last candle of the day,
+    // high/low/volume = MAX/MIN/SUM across the day's candles — same shape
+    // as an NSE FO bhavcopy daily row. LAG(oi) over the prior day (10-day
+    // buffer before `from`) gives change_in_oi without a stored column.
+    const rows = marketDb.prepare(`
+      WITH daily AS (
+        SELECT
+          underlying, expiry, strike, option_type,
+          date(timestamp) AS trade_date,
+          MAX(high) AS high,
+          MIN(low)  AS low,
+          SUM(volume) AS volume
+          FROM options_intraday
+         WHERE date(timestamp) BETWEEN date(?, '-10 days') AND ?
+         GROUP BY underlying, expiry, strike, option_type, date(timestamp)
+      ),
+      opens AS (
+        SELECT underlying, expiry, strike, option_type, date(timestamp) AS trade_date, open,
+               ROW_NUMBER() OVER (
+                 PARTITION BY underlying, expiry, strike, option_type, date(timestamp)
+                 ORDER BY timestamp ASC
+               ) AS rn
+          FROM options_intraday
+         WHERE date(timestamp) BETWEEN date(?, '-10 days') AND ?
+      ),
+      closes AS (
+        SELECT underlying, expiry, strike, option_type, date(timestamp) AS trade_date, close, oi,
+               ROW_NUMBER() OVER (
+                 PARTITION BY underlying, expiry, strike, option_type, date(timestamp)
+                 ORDER BY timestamp DESC
+               ) AS rn
+          FROM options_intraday
+         WHERE date(timestamp) BETWEEN date(?, '-10 days') AND ?
+      ),
+      merged AS (
+        SELECT d.underlying, d.expiry, d.strike, d.option_type, d.trade_date,
+               o.open, d.high, d.low, c.close, d.volume, c.oi
+          FROM daily d
+          JOIN opens  o ON o.underlying = d.underlying AND o.expiry = d.expiry AND o.strike = d.strike
+                       AND o.option_type = d.option_type AND o.trade_date = d.trade_date AND o.rn = 1
+          JOIN closes c ON c.underlying = d.underlying AND c.expiry = d.expiry AND c.strike = d.strike
+                       AND c.option_type = d.option_type AND c.trade_date = d.trade_date AND c.rn = 1
+      )
+      SELECT underlying, expiry, strike, option_type, trade_date, open, high, low, close, volume,
+             COALESCE(oi, 0) AS oi,
+             COALESCE(oi, 0) - COALESCE(
+               LAG(oi) OVER (
+                 PARTITION BY underlying, expiry, strike, option_type ORDER BY trade_date
+               ), 0
+             ) AS change_in_oi
+        FROM merged
+       WHERE trade_date >= ?
+       ORDER BY underlying, trade_date, expiry, strike, option_type
+    `).all(from, to, from, to, from, to, from) as unknown as RawRow[];
+
+    if (rows.length === 0) {
+      res.json({ symbols: 0, bars: 0, data: [] });
+      return;
+    }
+
+    const data = rows.map((row) => ({
+      symbol:         row.underlying,
+      trade_date:     row.trade_date,
+      expiry_date:    row.expiry,
+      strike_price:   row.strike,
+      option_type:    row.option_type,
+      open:           row.open,
+      high:           row.high,
+      low:            row.low,
+      close:          row.close,
+      open_interest:  row.oi ?? 0,
+      change_in_oi:   row.change_in_oi,
+      volume:         row.volume ?? 0,
+    }));
+
+    const symbolCount = new Set(rows.map((r) => r.underlying)).size;
+
+    console.log(
+      "[marketData] /scanner/options-universe-data — %d underlyings, %d daily bars (%s → %s)",
+      symbolCount, rows.length, from, to
+    );
+
+    res.json({ symbols: symbolCount, bars: rows.length, data });
+  } catch (err) {
+    console.error(
+      "[marketData] /scanner/options-universe-data error:",
+      err instanceof Error ? err.message : err
+    );
+    res.status(500).json({ error: "Failed to query local options_intraday table" });
+  }
+});
+
 router.get("/scheduler-status", (_req: Request, res: Response) => {
   res.json(getSchedulerStatus());
 });

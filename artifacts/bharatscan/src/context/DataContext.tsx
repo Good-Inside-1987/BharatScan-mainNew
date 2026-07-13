@@ -331,6 +331,35 @@ export function DataContextProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentionally runs once on mount
 
+  // Auto-load options/futures data from local DB on first mount, mirroring
+  // the histories auto-load above. Reads from options_intraday (persisted by
+  // the nightly options sync job and the live ATM options tracker) via the
+  // read-only /scanner/options-universe-data endpoint — no broker calls, no
+  // manual click required. Falls back silently if nothing's synced yet.
+  useEffect(() => {
+    let toastId: string | number | undefined;
+    (async () => {
+      try {
+        toastId = toast.loading("Loading cached options data…", { duration: Infinity });
+        const res = await fetch("/api/market-data/scanner/options-universe-data");
+        if (!res.ok) { toast.dismiss(toastId); return; }
+        const json = await res.json() as { symbols: number; bars: number; data: ApiOptionRow[] };
+        toast.dismiss(toastId);
+        if (!json.data?.length) return; // empty DB — leave existing empty state
+        const bars = parseOptionsApiRows(json.data);
+        setOptionsData((prev) => {
+          const mergedFutures = prev?.futures ?? [];
+          return indexOptions(bars, mergedFutures);
+        });
+        toast.success(`Loaded ${json.data.length.toLocaleString()} option bars from local database`, { duration: 3000 });
+      } catch {
+        if (toastId !== undefined) toast.dismiss(toastId);
+        // Silently swallow — server might not be up yet, that's fine
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally runs once on mount
+
   async function handleMasterUpload(files: FileList | null) {
     if (!files || !files.length) return;
     try {
