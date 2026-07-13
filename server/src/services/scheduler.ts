@@ -1,7 +1,8 @@
 import cron from "node-cron";
 import { CronExpressionParser } from "cron-parser";
 import { config } from "../config/environment.js";
-import { connect, disconnect, autoSubscribeFoSymbols, clearProtectedSymbols } from "./liveFeedService.js";
+import { connect, disconnect, autoSubscribeFoSymbols, clearProtectedSymbols, isConnected } from "./liveFeedService.js";
+import { isTradingDay } from "./tradingCalendar.js";
 import {
   initAtmOptionSubscriptions,
   startAtmRollTracking,
@@ -14,7 +15,7 @@ import {
 import { marketDb } from "../db.js";
 import { syncSymbolMaster } from "./symbolMasterService.js";
 import { syncNseHolidayCalendar } from "./holidayCalendarService.js";
-import { runEodSyncJob, runIntradaySyncJob } from "./syncJobs.js";
+import { runEodSyncJob, runIntradaySyncJob, todayIST } from "./syncJobs.js";
 import { runOptionsSyncJob } from "./optionsDataService.js";
 import { runFoBanListJob } from "./foBanListService.js";
 import { runSupplementaryJob, runMfHoldingsJob } from "./supplementaryJobs.js";
@@ -75,6 +76,102 @@ async function bootstrapHolidayCalendarIfEmpty(): Promise<void> {
   }
 }
 
+/**
+ * Parses a "minute hour * * days" cron expression (the only shape used by
+ * config.syncSchedule) into its {hour, minute} fields, so bootstrap logic
+ * can compare against the current IST clock without re-deriving the next
+ * fire time via cron-parser (which answers "when next", not "is now inside
+ * this window").
+ */
+function parseHourMinute(cronExpr: string): { hour: number; minute: number } {
+  const [minute, hour] = cronExpr.trim().split(/\s+/);
+  return { hour: Number(hour), minute: Number(minute) };
+}
+
+/** Current IST wall-clock time as minutes since midnight. */
+function nowIstMinutes(): number {
+  const parts = new Date().toLocaleTimeString("en-GB", {
+    timeZone: config.timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+  }); // "HH:MM"
+  const [h, m] = parts.split(":").map(Number);
+  return h * 60 + m;
+}
+
+/** Runs the exact sequence the liveOpen cron handler runs: connect the feed,
+ *  then auto-subscribe F&O stocks and ATM options. Shared by the cron
+ *  handler itself, the late-start bootstrap check, and the manual test
+ *  route, so there's one source of truth for "start the live feed". */
+async function runLiveOpenSequence(): Promise<void> {
+  console.log(
+    "[scheduler] Market open — live feed budget: %d F&O stocks + %d options slots (ATM ±%d, %d indices)",
+    FO_STOCKS_BUDGET, OPTIONS_LIVE_BUDGET, ATM_WINDOW, config.optionsIndices.length
+  );
+  await connect();
+
+  // ── Step 1: F&O stock auto-subscribe (reduced limit to make room for options) ──
+  try {
+    autoSubscribeFoSymbols(FO_STOCKS_BUDGET);
+  } catch (err) {
+    console.error(
+      "[scheduler] F&O auto-subscribe failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+
+  // ── Step 2: ATM option subscriptions (per configured index, ±ATM_WINDOW) ──
+  try {
+    await initAtmOptionSubscriptions();
+    startAtmRollTracking();
+  } catch (err) {
+    console.error(
+      "[scheduler] ATM option subscriptions failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+/**
+ * Recovers a missed/late liveOpen: the liveOpen cron fires once at exactly
+ * config.syncSchedule.liveOpen with no retry, so a process that wasn't
+ * running at that instant (late start, or a Replit sleep/wake past 9 AM)
+ * would otherwise get zero live data for the rest of the trading day with
+ * no way to recover short of restarting right before tomorrow's open.
+ *
+ * Checks whether right now is (a) a trading day and (b) between liveOpen
+ * and liveClose, and if so and the live feed isn't already connected, runs
+ * the same connect → auto-subscribe → ATM-tracking sequence the cron
+ * handler runs. No-op otherwise — this is purely a late-start recovery
+ * path, not a replacement for the liveClose cron or daily protection-flag
+ * clearing, which stay untouched.
+ */
+export async function bootstrapLiveFeedIfMarketOpen(): Promise<void> {
+  const today = todayIST();
+  if (!isTradingDay(today)) return;
+
+  const open = parseHourMinute(config.syncSchedule.liveOpen);
+  const close = parseHourMinute(config.syncSchedule.liveClose);
+  const nowMin = nowIstMinutes();
+  const openMin = open.hour * 60 + open.minute;
+  const closeMin = close.hour * 60 + close.minute;
+  if (nowMin < openMin || nowMin > closeMin) return;
+
+  if (isConnected()) return; // already running — nothing to recover
+
+  console.log(
+    "[scheduler] Market is open and live feed isn't connected — starting it now (late start recovery)"
+  );
+  try {
+    await runLiveOpenSequence();
+  } catch (err) {
+    console.error(
+      "[scheduler] Late-start live feed recovery failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
 // Only runs the scheduler inside this process on environments where it's
 // not handled by a separate PM2 process (see config.runSchedulerInProcess).
 export function startScheduler(): void {
@@ -105,34 +202,22 @@ export async function registerAllCronJobs(): Promise<void> {
   });
   startPeriodicCatchUpCheck();
 
+  // Late-start recovery: if the process starts (or wakes from sleep) after
+  // liveOpen already fired today, the live feed would otherwise stay dark
+  // for the rest of the trading day. Runs async — cron registration below
+  // does not wait on it.
+  void bootstrapLiveFeedIfMarketOpen().catch((err) => {
+    console.error("[scheduler] Live feed bootstrap failed:", err instanceof Error ? err.message : String(err));
+  });
+
   cron.schedule(
     config.syncSchedule.liveOpen,
     () => {
-      console.log(
-        "[scheduler] Market open — live feed budget: %d F&O stocks + %d options slots (ATM ±%d, %d indices)",
-        FO_STOCKS_BUDGET, OPTIONS_LIVE_BUDGET, ATM_WINDOW, config.optionsIndices.length
-      );
-      void connect().then(async () => {
-        // ── Step 1: F&O stock auto-subscribe (reduced limit to make room for options) ──
-        try {
-          autoSubscribeFoSymbols(FO_STOCKS_BUDGET);
-        } catch (err) {
-          console.error(
-            "[scheduler] F&O auto-subscribe failed:",
-            err instanceof Error ? err.message : String(err)
-          );
-        }
-
-        // ── Step 2: ATM option subscriptions (per configured index, ±ATM_WINDOW) ──
-        try {
-          await initAtmOptionSubscriptions();
-          startAtmRollTracking();
-        } catch (err) {
-          console.error(
-            "[scheduler] ATM option subscriptions failed:",
-            err instanceof Error ? err.message : String(err)
-          );
-        }
+      void runLiveOpenSequence().catch((err) => {
+        console.error(
+          "[scheduler] liveOpen sequence failed:",
+          err instanceof Error ? err.message : String(err)
+        );
       });
     },
     { timezone: config.timezone }

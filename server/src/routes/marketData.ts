@@ -7,9 +7,10 @@ import {
   unsubscribeSymbols,
   getSubscribedSymbols,
   getProtectedSymbols,
-  autoSubscribeFoSymbols,
+  isConnected,
 } from "../services/liveFeedService.js";
-import { getSchedulerStatus } from "../services/scheduler.js";
+import { getSchedulerStatus, bootstrapLiveFeedIfMarketOpen } from "../services/scheduler.js";
+import { getAtmTrackerStatus } from "../services/liveOptionsTracker.js";
 import { runEodSyncJob, runIntradaySyncJob, todayIST } from "../services/syncJobs.js";
 import { runOptionsSyncJob } from "../services/optionsDataService.js";
 import { runPeriodicCatchUpCheck, runStartupCatchUp, getCatchUpStatus } from "../services/catchUpScheduler.js";
@@ -602,17 +603,27 @@ router.get("/live/subscriptions", (_req: Request, res: Response) => {
 });
 
 /**
- * TEMPORARY test route — manually runs the same F&O auto-subscribe logic the
- * liveOpen cron job triggers, for verifying behavior outside market hours.
- * Safe to remove once the liveOpen job itself has been verified live.
+ * TEMPORARY test / manual-recovery route — calls the same
+ * bootstrapLiveFeedIfMarketOpen() the scheduler runs once at startup to
+ * recover a missed/late liveOpen, so there's one source of truth for
+ * "start the live feed if it should be running but isn't" rather than
+ * this route partially replicating the cron's connect+subscribe sequence
+ * on its own. No-ops (logs and returns) outside trading hours or when
+ * already connected — call it while the market is open to actually start
+ * the feed. Safe to remove once the liveOpen job itself has been verified
+ * live.
  */
-router.post("/live/auto-subscribe-fo/test", (_req: Request, res: Response) => {
+router.post("/live/auto-subscribe-fo/test", async (_req: Request, res: Response) => {
   try {
-    const result = autoSubscribeFoSymbols();
-    res.json(result);
+    await bootstrapLiveFeedIfMarketOpen();
+    res.json({
+      connected: isConnected(),
+      subscriptions: getSubscribedSymbols().length,
+      atmTracker: getAtmTrackerStatus(),
+    });
   } catch (err) {
     console.error("[marketData] /live/auto-subscribe-fo/test error:", err instanceof Error ? err.message : err);
-    res.status(500).json({ error: "Failed to run F&O auto-subscribe" });
+    res.status(500).json({ error: "Failed to run live feed bootstrap" });
   }
 });
 

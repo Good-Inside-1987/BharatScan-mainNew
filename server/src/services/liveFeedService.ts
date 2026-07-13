@@ -624,6 +624,11 @@ export async function connect(): Promise<void> {
   }
 }
 
+/** True when the WebSocket connection is open and receiving ticks. */
+export function isConnected(): boolean {
+  return !!ws && ws.readyState === WebSocket.OPEN;
+}
+
 /** Closes the connection and stops any pending reconnect attempts. */
 export function disconnect(): void {
   intentionallyClosed = true;

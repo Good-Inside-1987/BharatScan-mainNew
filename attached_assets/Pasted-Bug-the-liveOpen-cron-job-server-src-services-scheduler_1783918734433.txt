@@ -1,0 +1,34 @@
+Bug: the liveOpen cron job (server/src/services/scheduler.ts) that connects 
+the live feed and subscribes F&O stocks + ATM options fires once at exactly 
+config.syncSchedule.liveOpen (9:00 AM IST) with no recovery if the process 
+wasn't running at that instant — unlike EOD/intraday/options sync, this job 
+was intentionally left out of catchUpScheduler.ts's JOBS list since it's 
+not a date-based backfill, so a late app start (or a Replit sleep/wake past 
+9 AM) means zero live data for the rest of that trading day with no way to 
+recover short of restarting right before market open tomorrow.
+
+Fix, in server/src/services/scheduler.ts:
+
+1. Add a `bootstrapLiveFeedIfMarketOpen()` function, called once inside 
+   registerAllCronJobs() (same place bootstrapSymbolMasterIfEmpty() is 
+   called) — check whether right now is (a) a trading day, and (b) between 
+   config.syncSchedule.liveOpen and config.syncSchedule.liveClose times. 
+   If both are true and the live feed isn't already connected (reuse 
+   whatever connection-status check liveFeedService.ts exposes, e.g. 
+   isConnected()), run the exact same sequence the cron handler runs: 
+   connect() → autoSubscribeFoSymbols(FO_STOCKS_BUDGET) → 
+   initAtmOptionSubscriptions() → startAtmRollTracking(). Wrap in the same 
+   try/catch-per-step pattern already used in the cron handler, and log 
+   clearly (e.g. "[scheduler] Market is open and live feed isn't connected 
+   — starting it now (late start recovery)").
+
+2. Also make the existing `/live/auto-subscribe-fo/test` route call 
+   connect() first if not already connected, so it becomes a genuinely 
+   usable manual recovery button rather than a partial one — or, simpler, 
+   just have it call the new bootstrapLiveFeedIfMarketOpen() function 
+   directly so there's one source of truth for "start the live feed if 
+   it should be running but isn't."
+
+Do not change the liveClose cron or the daily protection-flag clearing — 
+this is purely about recovering a missed/late liveOpen, not changing 
+end-of-day behavior.
