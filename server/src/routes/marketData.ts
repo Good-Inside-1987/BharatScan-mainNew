@@ -9,7 +9,7 @@ import {
   getProtectedSymbols,
   isConnected,
 } from "../services/liveFeedService.js";
-import { getSchedulerStatus, bootstrapLiveFeedIfMarketOpen } from "../services/scheduler.js";
+import { getSchedulerStatus, reconcileLiveFeedState } from "../services/scheduler.js";
 import { getAtmTrackerStatus } from "../services/liveOptionsTracker.js";
 import { runEodSyncJob, runIntradaySyncJob, todayIST } from "../services/syncJobs.js";
 import { runOptionsSyncJob } from "../services/optionsDataService.js";
@@ -604,18 +604,17 @@ router.get("/live/subscriptions", (_req: Request, res: Response) => {
 
 /**
  * TEMPORARY test / manual-recovery route — calls the same
- * bootstrapLiveFeedIfMarketOpen() the scheduler runs once at startup to
- * recover a missed/late liveOpen, so there's one source of truth for
- * "start the live feed if it should be running but isn't" rather than
- * this route partially replicating the cron's connect+subscribe sequence
- * on its own. No-ops (logs and returns) outside trading hours or when
- * already connected — call it while the market is open to actually start
- * the feed. Safe to remove once the liveOpen job itself has been verified
- * live.
+ * reconcileLiveFeedState() the scheduler runs on its periodic interval, so
+ * there's one source of truth for "make the live feed's connection state
+ * match what it should be right now" rather than this route replicating
+ * the connect+subscribe sequence on its own. No-ops when state already
+ * matches (e.g. outside trading hours, or already connected) — call it
+ * while the market is open to actually start the feed. Safe to remove once
+ * the reconciliation loop itself has been verified live.
  */
 router.post("/live/auto-subscribe-fo/test", async (_req: Request, res: Response) => {
   try {
-    await bootstrapLiveFeedIfMarketOpen();
+    await reconcileLiveFeedState();
     res.json({
       connected: isConnected(),
       subscriptions: getSubscribedSymbols().length,
@@ -623,7 +622,7 @@ router.post("/live/auto-subscribe-fo/test", async (_req: Request, res: Response)
     });
   } catch (err) {
     console.error("[marketData] /live/auto-subscribe-fo/test error:", err instanceof Error ? err.message : err);
-    res.status(500).json({ error: "Failed to run live feed bootstrap" });
+    res.status(500).json({ error: "Failed to run live feed reconciliation" });
   }
 });
 

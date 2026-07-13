@@ -132,9 +132,27 @@ export interface ApiSchedulerStatus {
   runSchedulerInProcess: boolean;
   runsInSeparateProcess: boolean;
   timezone: string;
+  // Live feed connect/disconnect is driven by a periodic reconciliation
+  // check rather than fixed liveOpen/liveClose cron times — no single
+  // "nextRun" timestamp exists anymore, so this reports the live state of
+  // that check instead.
+  liveFeed: {
+    reconcileIntervalMinutes: number;
+    marketOpenNow: boolean;
+    connected: boolean;
+    liveOpenExpression: string;
+    liveCloseExpression: string;
+  };
   jobs: {
-    liveOpen: { expression: string; nextRun: string | null };
-    liveClose: { expression: string; nextRun: string | null };
+    symbolMaster: { expression: string; nextRun: string | null };
+    holidayCalendar: { expression: string; nextRun: string | null };
+    eod: { expression: string; nextRun: string | null };
+    intraday: { expression: string; nextRun: string | null };
+    options: { expression: string; nextRun: string | null };
+    foBanList: { expression: string; nextRun: string | null };
+    supplementary: { expression: string; nextRun: string | null };
+    mfHoldings: { expression: string; nextRun: string | null };
+    cleanup: { expression: string; nextRun: string | null };
   };
   catchUp: ApiCatchUpStatus;
 }

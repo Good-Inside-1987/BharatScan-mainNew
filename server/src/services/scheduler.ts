@@ -99,10 +99,28 @@ function nowIstMinutes(): number {
   return h * 60 + m;
 }
 
-/** Runs the exact sequence the liveOpen cron handler runs: connect the feed,
- *  then auto-subscribe F&O stocks and ATM options. Shared by the cron
- *  handler itself, the late-start bootstrap check, and the manual test
- *  route, so there's one source of truth for "start the live feed". */
+/**
+ * True only when the live feed *should* be running right now: today is a
+ * trading day AND the current IST clock falls within
+ * [config.syncSchedule.liveOpen, config.syncSchedule.liveClose]. Parses the
+ * minute/hour fields directly out of those two cron expressions rather than
+ * hardcoding 9:00/15:35 separately, so this stays in sync if the schedule
+ * ever changes.
+ */
+export function isMarketOpenNow(): boolean {
+  if (!isTradingDay(todayIST())) return false;
+
+  const open = parseHourMinute(config.syncSchedule.liveOpen);
+  const close = parseHourMinute(config.syncSchedule.liveClose);
+  const nowMin = nowIstMinutes();
+  const openMin = open.hour * 60 + open.minute;
+  const closeMin = close.hour * 60 + close.minute;
+  return nowMin >= openMin && nowMin <= closeMin;
+}
+
+/** Runs the exact sequence the old liveOpen cron handler ran: connect the
+ *  feed, then auto-subscribe F&O stocks and ATM options. connect() is safe
+ *  to call repeatedly, so this is a no-op if already connected. */
 async function runLiveOpenSequence(): Promise<void> {
   console.log(
     "[scheduler] Market open — live feed budget: %d F&O stocks + %d options slots (ATM ±%d, %d indices)",
@@ -132,45 +150,66 @@ async function runLiveOpenSequence(): Promise<void> {
   }
 }
 
-/**
- * Recovers a missed/late liveOpen: the liveOpen cron fires once at exactly
- * config.syncSchedule.liveOpen with no retry, so a process that wasn't
- * running at that instant (late start, or a Replit sleep/wake past 9 AM)
- * would otherwise get zero live data for the rest of the trading day with
- * no way to recover short of restarting right before tomorrow's open.
- *
- * Checks whether right now is (a) a trading day and (b) between liveOpen
- * and liveClose, and if so and the live feed isn't already connected, runs
- * the same connect → auto-subscribe → ATM-tracking sequence the cron
- * handler runs. No-op otherwise — this is purely a late-start recovery
- * path, not a replacement for the liveClose cron or daily protection-flag
- * clearing, which stay untouched.
- */
-export async function bootstrapLiveFeedIfMarketOpen(): Promise<void> {
-  const today = todayIST();
-  if (!isTradingDay(today)) return;
-
-  const open = parseHourMinute(config.syncSchedule.liveOpen);
-  const close = parseHourMinute(config.syncSchedule.liveClose);
-  const nowMin = nowIstMinutes();
-  const openMin = open.hour * 60 + open.minute;
-  const closeMin = close.hour * 60 + close.minute;
-  if (nowMin < openMin || nowMin > closeMin) return;
-
-  if (isConnected()) return; // already running — nothing to recover
-
-  console.log(
-    "[scheduler] Market is open and live feed isn't connected — starting it now (late start recovery)"
-  );
-  try {
-    await runLiveOpenSequence();
-  } catch (err) {
-    console.error(
-      "[scheduler] Late-start live feed recovery failed:",
-      err instanceof Error ? err.message : String(err)
-    );
-  }
+/** Runs the exact sequence the old liveClose cron handler ran: stop ATM roll
+ *  tracking (finalising each option contract's partial candle before the WS
+ *  connection drops), disconnect, then clear protection flags so the next
+ *  open rebuilds fresh. */
+function runLiveCloseSequence(): void {
+  stopAtmRollTracking();
+  disconnect();
+  clearProtectedSymbols();
 }
+
+/**
+ * Reconciles the live feed's actual connection state against what it
+ * *should* be right now, replacing the old fixed-time liveOpen/liveClose
+ * cron triggers. Those cron jobs each fired once at one exact clock instant
+ * — a process that wasn't running at that instant (late start, or a Replit
+ * sleep/wake past 9 AM) got zero live data for the rest of the trading day
+ * with no way to recover. Calling this on a short interval instead makes
+ * "is the live feed's state correct for right now?" a continuously-true
+ * condition rather than a one-shot trigger: it naturally starts the feed
+ * once the clock crosses into market hours and stops it once the clock
+ * crosses out, regardless of whether that aligns with the app already being
+ * open at that exact moment or the app opening mid-session.
+ */
+export async function reconcileLiveFeedState(): Promise<void> {
+  const shouldBeOpen = isMarketOpenNow();
+  const connected = isConnected();
+
+  if (shouldBeOpen && !connected) {
+    console.log(
+      "[scheduler] Market is open and live feed isn't connected — starting it now"
+    );
+    try {
+      await runLiveOpenSequence();
+    } catch (err) {
+      console.error(
+        "[scheduler] Live feed reconcile (open) failed:",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+    return;
+  }
+
+  if (!shouldBeOpen && connected) {
+    console.log(
+      "[scheduler] Market is closed and live feed is still connected — stopping it now"
+    );
+    try {
+      runLiveCloseSequence();
+    } catch (err) {
+      console.error(
+        "[scheduler] Live feed reconcile (close) failed:",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }
+  // Otherwise: state already matches — nothing to do.
+}
+
+/** How often reconcileLiveFeedState() re-checks state, in minutes. */
+export const LIVE_FEED_RECONCILE_INTERVAL_MINUTES = 2;
 
 // Only runs the scheduler inside this process on environments where it's
 // not handled by a separate PM2 process (see config.runSchedulerInProcess).
@@ -202,42 +241,19 @@ export async function registerAllCronJobs(): Promise<void> {
   });
   startPeriodicCatchUpCheck();
 
-  // Late-start recovery: if the process starts (or wakes from sleep) after
-  // liveOpen already fired today, the live feed would otherwise stay dark
-  // for the rest of the trading day. Runs async — cron registration below
-  // does not wait on it.
-  void bootstrapLiveFeedIfMarketOpen().catch((err) => {
-    console.error("[scheduler] Live feed bootstrap failed:", err instanceof Error ? err.message : String(err));
+  // Live feed reconciliation — replaces the old fixed-time liveOpen/liveClose
+  // cron triggers. Runs once immediately (covers late starts / wake-from-sleep
+  // mid-session) and then every LIVE_FEED_RECONCILE_INTERVAL_MINUTES, so the
+  // feed connects/disconnects based on a continuously-true "should this be
+  // running right now?" check rather than one exact clock instant.
+  void reconcileLiveFeedState().catch((err) => {
+    console.error("[scheduler] Live feed reconcile failed:", err instanceof Error ? err.message : String(err));
   });
-
-  cron.schedule(
-    config.syncSchedule.liveOpen,
-    () => {
-      void runLiveOpenSequence().catch((err) => {
-        console.error(
-          "[scheduler] liveOpen sequence failed:",
-          err instanceof Error ? err.message : String(err)
-        );
-      });
-    },
-    { timezone: config.timezone }
-  );
-
-  cron.schedule(
-    config.syncSchedule.liveClose,
-    () => {
-      // Stop ATM roll timer and unsubscribe all tracked option contracts +
-      // index spot symbols first, then disconnect and clear protection flags.
-      // This gives each option contract's partial candle a chance to be
-      // finalised (SubscriptionManager.remove() calls finalizeCandle) before
-      // the WS connection drops.
-      stopAtmRollTracking();
-      disconnect();
-      // Clear protection flags so tomorrow's liveOpen rebuilds fresh.
-      clearProtectedSymbols();
-    },
-    { timezone: config.timezone }
-  );
+  setInterval(() => {
+    void reconcileLiveFeedState().catch((err) => {
+      console.error("[scheduler] Live feed reconcile failed:", err instanceof Error ? err.message : String(err));
+    });
+  }, LIVE_FEED_RECONCILE_INTERVAL_MINUTES * 60 * 1000);
 
   // Symbol master refresh — every Monday at 7 AM IST
   cron.schedule(
@@ -381,15 +397,19 @@ export function getSchedulerStatus() {
     timezone: config.timezone,
     liveOptions: getAtmTrackerStatus(),
     catchUp: getCatchUpStatus(),
+    // No more fixed liveOpen/liveClose cron times — the live feed's
+    // connect/disconnect is driven by reconcileLiveFeedState() re-checking
+    // this condition on an interval instead. Surface the live state of that
+    // check so the dashboard can show "market open: X, feed connected: Y"
+    // rather than a stale next-fire timestamp.
+    liveFeed: {
+      reconcileIntervalMinutes: LIVE_FEED_RECONCILE_INTERVAL_MINUTES,
+      marketOpenNow: isMarketOpenNow(),
+      connected: isConnected(),
+      liveOpenExpression: config.syncSchedule.liveOpen,
+      liveCloseExpression: config.syncSchedule.liveClose,
+    },
     jobs: {
-      liveOpen: {
-        expression: config.syncSchedule.liveOpen,
-        nextRun: schedulerActive ? nextFireTime(config.syncSchedule.liveOpen) : null,
-      },
-      liveClose: {
-        expression: config.syncSchedule.liveClose,
-        nextRun: schedulerActive ? nextFireTime(config.syncSchedule.liveClose) : null,
-      },
       symbolMaster: {
         expression: config.syncSchedule.symbolMaster,
         nextRun: schedulerActive ? nextFireTime(config.syncSchedule.symbolMaster) : null,

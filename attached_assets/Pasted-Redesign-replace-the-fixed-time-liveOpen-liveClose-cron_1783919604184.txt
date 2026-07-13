@@ -1,0 +1,50 @@
+Redesign: replace the fixed-time liveOpen/liveClose cron triggers in 
+server/src/services/scheduler.ts with a periodic reconciliation check — 
+"is the live feed's state correct for right now?" — run once at startup 
+and then on a short interval, rather than relying on the process being 
+alive at one exact clock instant.
+
+1. Add a helper, e.g. isMarketOpenNow(): boolean, that returns true only 
+   when both are true: (a) today is a trading day — reuse the same 
+   isTradingDay()-style logic already used in catchUpScheduler.ts (extract 
+   it to a shared location rather than duplicating it), and (b) the 
+   current IST time falls between config.syncSchedule.liveOpen and 
+   config.syncSchedule.liveClose (parse the minute/hour fields directly 
+   out of those two cron expressions rather than hardcoding 9:00/15:35 
+   separately, so this stays in sync if the schedule ever changes).
+
+2. Add reconcileLiveFeedState(), called once immediately when 
+   registerAllCronJobs() runs (same place bootstrapSymbolMasterIfEmpty() 
+   is called) and then on a setInterval — every 1–2 minutes is plenty: 
+   - If isMarketOpenNow() is true and the live feed isn't connected 
+     (reuse liveFeedService's own connection-state check): run the exact 
+     same sequence the old cron handler ran — connect() → 
+     autoSubscribeFoSymbols(FO_STOCKS_BUDGET) → 
+     initAtmOptionSubscriptions() → startAtmRollTracking(). connect() is 
+     already documented as safe to call repeatedly, so this is a safe 
+     no-op if already connected.
+   - If isMarketOpenNow() is false and the live feed IS connected (i.e. 
+     market just closed, or the app started up outside market hours with 
+     leftover state): run the close sequence — stopAtmRollTracking() → 
+     disconnect() → clearProtectedSymbols() — same as today's liveClose 
+     handler.
+   - Otherwise: no-op.
+
+3. Remove the two cron.schedule(...) calls for liveOpen/liveClose entirely 
+   — reconcileLiveFeedState()'s periodic check fully subsumes both, since 
+   it naturally starts the feed once the clock crosses into market hours 
+   and stops it once the clock crosses out, regardless of whether that 
+   happens to align with the app already being open at that exact moment 
+   or the app opening mid-session.
+
+4. Update getSchedulerStatus() and the Settings dashboard's "Live Feed 
+   Schedule" card accordingly — since there's no longer a single 
+   "nextRun" cron time for liveOpen/liveClose, show something like 
+   "reconciled every N minutes, market open: {isMarketOpenNow() 
+   result}, feed connected: {actual state}" instead of a fixed next-fire 
+   timestamp.
+
+Keep everything else — F&O stock selection logic, ATM window size, 
+protection-flag clearing on close — exactly as-is. This is purely about 
+changing what *triggers* connect/disconnect from "one clock instant" to 
+"continuously true condition," not changing what happens once triggered.

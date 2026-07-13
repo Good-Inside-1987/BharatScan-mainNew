@@ -167,6 +167,17 @@ function formatDate(iso: string | null): string {
   }
 }
 
+/** Formats a "minute hour * * days" cron expression's hour/minute fields as
+ *  "HH:MM", zero-padded — used to show the reconciliation window without a
+ *  fixed next-run timestamp (see liveFeed status). */
+function formatCronHourMinute(cronExpr: string): string {
+  const [minute, hour] = cronExpr.trim().split(/\s+/);
+  const h = Number(hour);
+  const m = Number(minute);
+  if (Number.isNaN(h) || Number.isNaN(m)) return cronExpr;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 export default function Settings() {
   const { themeMode, setTheme, compactMode, setCompactMode, accentColor, setAccentColor } = useTheme();
   const [searchParams] = useSearchParams();
@@ -1510,15 +1521,24 @@ export default function Settings() {
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
                       <div>
-                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Live Feed Connect</span>
-                        {schedulerStatus.jobs.liveOpen.nextRun ? formatDate(schedulerStatus.jobs.liveOpen.nextRun) : "—"}
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Market Open Now</span>
+                        <span className={`inline-flex items-center gap-1 font-medium ${schedulerStatus.liveFeed.marketOpenNow ? "text-emerald-400" : "text-muted-foreground"}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${schedulerStatus.liveFeed.marketOpenNow ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
+                          {schedulerStatus.liveFeed.marketOpenNow ? "Yes" : "No"}
+                        </span>
                       </div>
                       <div>
-                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Live Feed Disconnect</span>
-                        {schedulerStatus.jobs.liveClose.nextRun ? formatDate(schedulerStatus.jobs.liveClose.nextRun) : "—"}
+                        <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Feed Connected</span>
+                        <span className={`inline-flex items-center gap-1 font-medium ${schedulerStatus.liveFeed.connected ? "text-emerald-400" : "text-muted-foreground"}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${schedulerStatus.liveFeed.connected ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
+                          {schedulerStatus.liveFeed.connected ? "Yes" : "No"}
+                        </span>
                       </div>
                     </div>
-                    <p className="text-[10px] text-muted-foreground/60 pt-1">Timezone: {schedulerStatus.timezone}</p>
+                    <p className="text-[10px] text-muted-foreground/60 pt-1">
+                      Reconciled every {schedulerStatus.liveFeed.reconcileIntervalMinutes} min · window {formatCronHourMinute(schedulerStatus.liveFeed.liveOpenExpression)}–{formatCronHourMinute(schedulerStatus.liveFeed.liveCloseExpression)} IST
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/60">Timezone: {schedulerStatus.timezone}</p>
                   </>
                 )}
               </div>
