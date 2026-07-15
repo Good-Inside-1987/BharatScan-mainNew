@@ -60,8 +60,16 @@ if (!process.env.BROKER_ENCRYPTION_KEY) {
   );
 }
 
+// On Replit (and most cloud hosts) the app sits behind an HTTPS-terminating
+// reverse proxy: Express sees a plain HTTP connection even though the
+// browser is talking to it over HTTPS. Trusting the proxy lets req.ip and
+// req.secure reflect the real client/protocol instead of the proxy's.
+const isReplit = !!process.env.REPL_ID;
+
 const app = express();
 const port = Number(process.env.SERVER_PORT ?? 3001);
+
+if (isReplit) app.set("trust proxy", 1);
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
@@ -98,10 +106,19 @@ app.post("/api/auth/login", (req, res) => {
   if (!timingSafeEqual(Buffer.from(key), Buffer.from(requiredKey))) {
     res.status(401).json({ error: "Invalid key" }); return;
   }
+  // The Replit preview loads the app inside an iframe on a different
+  // top-level site than the API. A SameSite=Strict/Lax cookie is silently
+  // dropped in that third-party context — the login POST "succeeds" but the
+  // very next API call comes back 401 and bounces the user right back to
+  // the unlock screen. SameSite=None (which requires Secure) fixes that;
+  // Replit's proxy always terminates HTTPS even though this process only
+  // ever sees a plain HTTP connection, so `secure` must key off `isReplit`/
+  // NODE_ENV rather than `req.secure`.
+  const crossSiteSafe = isReplit || process.env.NODE_ENV === "production";
   res.cookie("bs_session", signSession(requiredKey), {
     httpOnly: true,
-    sameSite: "strict",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: crossSiteSafe ? "none" : "lax",
+    secure: crossSiteSafe,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
   res.json({ ok: true });
