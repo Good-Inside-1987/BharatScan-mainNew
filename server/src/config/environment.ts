@@ -48,7 +48,9 @@ export const config = {
   // Resolved relative to the project root (not process.cwd()) so it
   // works regardless of which package directory the process is launched from.
   dbDir: process.env.DB_DIR
-    ? path.resolve(process.env.DB_DIR)
+    ? (path.isAbsolute(process.env.DB_DIR)
+        ? process.env.DB_DIR
+        : path.resolve(projectRoot, process.env.DB_DIR))
     : path.join(projectRoot, "data"),
 
   // ── EOD stock data ──────────────────────────────────────────────

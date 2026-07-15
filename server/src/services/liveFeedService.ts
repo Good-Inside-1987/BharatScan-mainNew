@@ -40,6 +40,7 @@ export const MAX_SUBSCRIBED_SYMBOLS = 200;
 
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 60_000;
+const HANDSHAKE_TIMEOUT_MS = 10_000;
 
 // How often we sweep in-progress candles for ones whose minute has elapsed
 // without a fresh tick arriving to trigger the boundary naturally (e.g. a
@@ -584,7 +585,17 @@ export async function connect(): Promise<void> {
     const url = `${FYERS_DATA_WS_URL}?type=symbolData&access_token=${encodeURIComponent(authToken)}`;
     const socket = new WebSocket(url);
 
+    const handshakeTimer = setTimeout(() => {
+      if (ws !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+      console.warn("[liveFeedService] Handshake timed out after %dms — forcing reconnect", HANDSHAKE_TIMEOUT_MS);
+      connecting = false;
+      ws = null;
+      socket.terminate();
+      scheduleReconnect();
+    }, HANDSHAKE_TIMEOUT_MS);
+
     socket.on("open", () => {
+      clearTimeout(handshakeTimer);
       if (ws !== socket) return; // stale socket superseded by a newer attempt
       connecting = false;
       reconnectAttempt = 0;
@@ -600,12 +611,14 @@ export async function connect(): Promise<void> {
     });
 
     socket.on("error", (err) => {
+      clearTimeout(handshakeTimer);
       if (ws !== socket) return;
       console.warn("[liveFeedService] Feed error: %s", err instanceof Error ? err.message : String(err));
       // "close" will also fire and drive the reconnect; avoid double-scheduling here.
     });
 
     socket.on("close", () => {
+      clearTimeout(handshakeTimer);
       if (ws !== socket) return; // a newer socket has already replaced this one
       connecting = false;
       ws = null;
