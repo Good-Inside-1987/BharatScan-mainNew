@@ -1,5 +1,19 @@
 import { useEffect, useState, useRef, type FormEvent } from "react";
 
+const TOKEN_KEY = "bs_auth_token";
+
+export function getStoredToken(): string | null {
+  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+}
+
+function storeToken(token: string): void {
+  try { localStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
+}
+
+function clearToken(): void {
+  try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
+}
+
 async function attemptLogin(key: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetch("/api/auth/login", {
@@ -8,7 +22,14 @@ async function attemptLogin(key: string): Promise<{ ok: boolean; error?: string 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key }),
     });
-    if (res.ok) return { ok: true };
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      // Store the token from the response body in localStorage so every
+      // subsequent API call can send it as a Bearer header — this bypasses
+      // all browser third-party cookie restrictions inside iframes.
+      if (data.token) storeToken(data.token);
+      return { ok: true };
+    }
     const data = await res.json().catch(() => ({}));
     return { ok: false, error: data.error ?? "Invalid key" };
   } catch {
@@ -17,9 +38,17 @@ async function attemptLogin(key: string): Promise<{ ok: boolean; error?: string 
 }
 
 async function checkAuth(): Promise<boolean> {
+  const token = getStoredToken();
+  if (!token) return false;
+  // Verify the stored token against a real auth-gated endpoint rather than
+  // /api/health (which is exempt from auth and always returns 200).
   try {
-    const res = await fetch("/api/health", { credentials: "include" });
-    return res.ok;
+    const res = await fetch("/api/auth/verify", {
+      credentials: "include",
+      headers: { "Authorization": `Bearer ${token}` },
+    });
+    if (!res.ok) { clearToken(); return false; }
+    return true;
   } catch {
     return false;
   }
@@ -37,7 +66,7 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const handler = () => setAuthed(false);
+    const handler = () => { clearToken(); setAuthed(false); };
     window.addEventListener("auth:unauthorized", handler);
     return () => window.removeEventListener("auth:unauthorized", handler);
   }, []);

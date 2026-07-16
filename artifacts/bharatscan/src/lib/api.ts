@@ -16,11 +16,19 @@ export interface ApiSetting {
   value: string;
 }
 
+// Lazily import getStoredToken to avoid a circular dep — LoginGate exports it
+// from the same bundle entry point. We read localStorage directly here instead.
+function getBearerToken(): string | null {
+  try { return localStorage.getItem("bs_auth_token"); } catch { return null; }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getBearerToken();
+  const authHeader: Record<string, string> = token ? { "Authorization": `Bearer ${token}` } : {};
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: { "Content-Type": "application/json", ...authHeader, ...init?.headers },
   });
   if (!res.ok) {
     if (res.status === 401) {

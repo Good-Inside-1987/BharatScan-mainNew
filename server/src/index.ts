@@ -106,22 +106,21 @@ app.post("/api/auth/login", (req, res) => {
   if (!timingSafeEqual(Buffer.from(key), Buffer.from(requiredKey))) {
     res.status(401).json({ error: "Invalid key" }); return;
   }
-  // The Replit preview loads the app inside an iframe on a different
-  // top-level site than the API. A SameSite=Strict/Lax cookie is silently
-  // dropped in that third-party context — the login POST "succeeds" but the
-  // very next API call comes back 401 and bounces the user right back to
-  // the unlock screen. SameSite=None (which requires Secure) fixes that;
-  // Replit's proxy always terminates HTTPS even though this process only
-  // ever sees a plain HTTP connection, so `secure` must key off `isReplit`/
-  // NODE_ENV rather than `req.secure`.
+  // Return the signed token in the response body so the client can store it
+  // in localStorage and send it as a Bearer token header on every subsequent
+  // request. This completely avoids all browser cookie restrictions (third-
+  // party cookie blocking, SameSite rules inside iframes, etc.) that would
+  // otherwise silently drop the session cookie in Replit's preview pane.
+  const token = signSession(requiredKey);
+  // Also set the cookie as a fallback for environments where it works fine.
   const crossSiteSafe = isReplit || process.env.NODE_ENV === "production";
-  res.cookie("bs_session", signSession(requiredKey), {
+  res.cookie("bs_session", token, {
     httpOnly: true,
     sameSite: crossSiteSafe ? "none" : "lax",
     secure: crossSiteSafe,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
-  res.json({ ok: true });
+  res.json({ ok: true, token });
 });
 
 app.use("/api", (req, res, next) => {
@@ -133,7 +132,14 @@ app.use("/api", (req, res, next) => {
   // Allow health check without auth
   if (req.path === "/health") { next(); return; }
 
-  const provided = req.cookies?.bs_session as string | undefined;
+  // Primary: Bearer token in Authorization header (works in all iframe/cookie
+  // environments; the client stores this in localStorage after login).
+  // Fallback: legacy bs_session cookie (kept for environments where cookies work).
+  const authHeader = req.headers["authorization"];
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
+  const cookieToken = req.cookies?.bs_session as string | undefined;
+  const provided = bearerToken ?? cookieToken;
+
   if (!provided || !verifySession(provided, requiredKey)) {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -151,6 +157,12 @@ app.use("/api/paper-trading", paperTradingRouter);
 app.use("/api/broker-connections", brokerConnectionsRouter);
 app.use("/api/market-data", marketDataRouter);
 app.use("/api/symbols", symbolsRouter);
+
+// Protected endpoint — only reachable with a valid session token.
+// Used by the frontend's checkAuth() to confirm a stored token is still good.
+app.get("/api/auth/verify", (_req, res) => {
+  res.json({ ok: true });
+});
 
 app.get("/api/health", (_req, res) => {
   const meta = db
