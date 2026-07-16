@@ -242,6 +242,7 @@ async function runSymbolLoop(
     }
 
     try {
+      await new Promise((resolve) => setTimeout(resolve, 150));
       const bars = await getHistoricalBars(toFyersSymbol(symbol), resolution, date, date);
       if (bars.length > 0) {
         stats.completed++;

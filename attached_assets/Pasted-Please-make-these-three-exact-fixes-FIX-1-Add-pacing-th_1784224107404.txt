@@ -1,0 +1,39 @@
+Please make these three exact fixes:
+
+FIX 1 — Add pacing/throttling between requests to Fyers to stay under their real-time rate limit.
+
+Context: EOD sync and Intraday sync currently fire requests for every symbol back-to-back with no delay, which exceeds Fyers' actual rate limit. Once throttled, requests either return a proper JSON error ("request limit reached") or an HTML error page that our code tries to JSON.parse() directly, crashing with "Unexpected token '<'" instead of a clear error.
+
+In server/src/services/syncJobs.ts, find the loop that iterates over symbols in runEodSyncJob and runIntradaySyncJob (wherever each per-symbol historical fetch is made). Add a small delay between each request — e.g. wrap the per-symbol fetch call with:
+
+await new Promise((resolve) => setTimeout(resolve, 150));
+
+placed right before or after each fetch call inside the loop, so requests are paced roughly 6-7 per second instead of firing simultaneously with no gap. Apply this in both runEodSyncJob and runIntradaySyncJob. If there's already a shared helper function used by both jobs to iterate symbols, add the delay there once instead of duplicating it in two places — check for that first.
+
+FIX 2 — Safely detect non-JSON (rate-limited) responses instead of crashing on JSON.parse().
+
+Context: When Fyers rate-limits a request, it sometimes returns an HTML error page instead of JSON. The current code calls JSON.parse() (or response.json()) directly on this, producing the unhelpful error "Unexpected token '<', "<!doctype "... is not valid JSON" instead of clearly saying the request was rate-limited.
+
+Find where Fyers API responses are parsed as JSON in server/src/adapters/fyers.ts (likely a shared request/fetch helper used by getHistoricalBars, getQuotes, getOptionChain, etc.). Before parsing the response body as JSON, check the response's content-type header or inspect whether the raw text starts with "<" (indicating HTML). If it does, throw or return a clear error like "Rate limited by Fyers (received HTML instead of JSON)" instead of letting JSON.parse() throw its own cryptic error. If you find a shared low-level fetch/request helper already used by all Fyers adapter methods, make this fix there once so it covers every endpoint, rather than patching each method individually.
+
+FIX 3 — Re-apply the expiryData parsing fix (this was already written earlier but is missing from this codebase).
+
+In server/src/adapters/fyers.ts, inside getOptionChain(), find:
+
+const expiries: string[] = (data.data?.expiryData ?? []).map((ts) => {
+  const ms = typeof ts === "number" ? ts * 1000 : Number(ts) * 1000;
+  return new Date(ms).toISOString().slice(0, 10);
+}).filter(Boolean).sort();
+
+Replace it with:
+
+const expiries: string[] = (data.data?.expiryData ?? []).map((entry) => {
+  const raw = entry && typeof entry === "object"
+    ? (entry as { expiry?: unknown; date?: unknown }).expiry ?? (entry as { date?: unknown }).date
+    : entry;
+  const ms = typeof raw === "number" ? raw * 1000 : Number(raw) * 1000;
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString().slice(0, 10);
+}).filter((d): d is string => Boolean(d)).sort();
+
+Do not touch budget-counting logic, the DB_DIR fix, the WebSocket handshake fix, or anything unrelated to these three specific issues. After applying all three, run npx tsc --noEmit inside the server folder and confirm it passes with zero errors before committing.

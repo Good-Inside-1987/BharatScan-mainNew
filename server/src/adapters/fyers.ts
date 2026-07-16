@@ -96,6 +96,22 @@ export class FyersAdapter implements BrokerAdapter {
     return `${this.appId}:${this.accessToken}`;
   }
 
+  /** Fetch a URL and parse the response as JSON, detecting HTML rate-limit
+   *  pages before attempting JSON.parse() so callers get a clear error
+   *  instead of "Unexpected token '<'". */
+  private async fetchJson<T>(url: string | URL, init?: RequestInit): Promise<T> {
+    const response = await fetch(url, init);
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("text/html")) {
+      throw new Error("Rate limited by Fyers (received HTML instead of JSON)");
+    }
+    const text = await response.text();
+    if (text.trimStart().startsWith("<")) {
+      throw new Error("Rate limited by Fyers (received HTML instead of JSON)");
+    }
+    return JSON.parse(text) as T;
+  }
+
   /**
    * For Fyers:
    *   credentials.apiKey     = App ID
@@ -111,24 +127,19 @@ export class FyersAdapter implements BrokerAdapter {
       .update(`${credentials.apiKey}:${credentials.clientCode}`)
       .digest("hex");
 
-    const response = await fetch(
-      "https://api-t1.fyers.in/api/v3/validate-authcode",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          grant_type: "authorization_code",
-          appIdHash,
-          code: totpCode,
-        }),
-      }
-    );
-
-    const data = (await response.json()) as {
+    const data = await this.fetchJson<{
       s: string;
       message?: string;
       access_token?: string;
-    };
+    }>("https://api-t1.fyers.in/api/v3/validate-authcode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        grant_type: "authorization_code",
+        appIdHash,
+        code: totpCode,
+      }),
+    });
 
     if (data.s !== "ok" || !data.access_token) {
       throw new Error(data.message ?? "Fyers authentication failed");
@@ -155,15 +166,13 @@ export class FyersAdapter implements BrokerAdapter {
       url.searchParams.set("range_to", chunk.to);
       url.searchParams.set("cont_flag", "1");
 
-      const response = await fetch(url.toString(), {
-        headers: { Authorization: this.authHeader() },
-      });
-
-      const data = (await response.json()) as {
+      const data = await this.fetchJson<{
         s: string;
         message?: string;
         candles?: number[][];
-      };
+      }>(url.toString(), {
+        headers: { Authorization: this.authHeader() },
+      });
 
       if (data.s !== "ok") {
         throw new Error(data.message ?? "Fyers history request failed");
@@ -193,11 +202,7 @@ export class FyersAdapter implements BrokerAdapter {
     const url = new URL(`${FYERS_DATA_BASE}/quotes`);
     url.searchParams.set("symbols", symbols.join(","));
 
-    const response = await fetch(url.toString(), {
-      headers: { Authorization: this.authHeader() },
-    });
-
-    const data = (await response.json()) as {
+    const data = await this.fetchJson<{
       s: string;
       message?: string;
       d?: Array<{
@@ -212,7 +217,9 @@ export class FyersAdapter implements BrokerAdapter {
           tt?: number;
         };
       }>;
-    };
+    }>(url.toString(), {
+      headers: { Authorization: this.authHeader() },
+    });
 
     if (data.s !== "ok") {
       throw new Error(data.message ?? "Fyers quotes request failed");
@@ -240,29 +247,31 @@ export class FyersAdapter implements BrokerAdapter {
     url.searchParams.set("symbol", underlying);
     if (expiry) url.searchParams.set("timestamp", expiry);
 
-    const response = await fetch(url.toString(), {
-      headers: { Authorization: this.authHeader() },
-    });
-
-    const data = (await response.json()) as {
+    const data = await this.fetchJson<{
       s: string;
       message?: string;
       data?: {
         optionsChain?: Array<Record<string, unknown>>;
-        expiryData?: Array<string | number>;
+        expiryData?: Array<string | number | Record<string, unknown>>;
         underlying_ltp?: number;
       };
-    };
+    }>(url.toString(), {
+      headers: { Authorization: this.authHeader() },
+    });
 
     if (data.s !== "ok") {
       throw new Error(data.message ?? "Fyers option chain request failed");
     }
 
     // Extract available expiry dates from the response meta
-    const expiries: string[] = (data.data?.expiryData ?? []).map((ts) => {
-      const ms = typeof ts === "number" ? ts * 1000 : Number(ts) * 1000;
+    const expiries: string[] = (data.data?.expiryData ?? []).map((entry) => {
+      const raw = entry && typeof entry === "object"
+        ? (entry as { expiry?: unknown; date?: unknown }).expiry ?? (entry as { date?: unknown }).date
+        : entry;
+      const ms = typeof raw === "number" ? raw * 1000 : Number(raw) * 1000;
+      if (!Number.isFinite(ms)) return null;
       return new Date(ms).toISOString().slice(0, 10);
-    }).filter(Boolean).sort();
+    }).filter((d): d is string => Boolean(d)).sort();
 
     const spotPrice = data.data?.underlying_ltp;
 
