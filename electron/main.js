@@ -21,6 +21,7 @@
  */
 
 const { app, BrowserWindow, dialog } = require('electron');
+app.setName('BharatScan');
 const { spawn }                       = require('child_process');
 const path                            = require('path');
 const http                            = require('http');
