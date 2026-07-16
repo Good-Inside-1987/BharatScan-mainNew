@@ -30,7 +30,7 @@ const fs                              = require('fs');
 // ── Port configuration ────────────────────────────────────────────────────────
 
 const SERVER_PORT = parseInt(process.env.SERVER_PORT ?? '3001', 10);
-const VITE_PORT   = parseInt(process.env.VITE_PORT   ?? '5000', 10);
+const VITE_PORT   = parseInt(process.env.PORT   ?? '5173', 10);
 
 const HEALTH_URL  = `http://localhost:${SERVER_PORT}/api/health`;
 
