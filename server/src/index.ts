@@ -113,7 +113,13 @@ app.post("/api/auth/login", (req, res) => {
   // otherwise silently drop the session cookie in Replit's preview pane.
   const token = signSession(requiredKey);
   // Also set the cookie as a fallback for environments where it works fine.
-  const crossSiteSafe = isReplit || process.env.NODE_ENV === "production";
+  // Only use SameSite=None + Secure for Replit's cross-site iframe context.
+  // Do NOT key off NODE_ENV=production: packaged Electron explicitly sets
+  // NODE_ENV=production but still serves over plain http://localhost, and
+  // some Chromium builds inside Electron reject SameSite=None cookies on
+  // non-HTTPS origins even with the localhost exception, silently dropping
+  // the cookie and causing every post-login API call to return 401.
+  const crossSiteSafe = isReplit;
   res.cookie("bs_session", token, {
     httpOnly: true,
     sameSite: crossSiteSafe ? "none" : "lax",

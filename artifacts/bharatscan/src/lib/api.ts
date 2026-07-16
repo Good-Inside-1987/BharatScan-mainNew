@@ -225,11 +225,8 @@ export const apiGetQuoteCacheStats = () =>
 export const apiResetQuoteCacheStats = () =>
   request<ApiQuoteCacheStats>("/market-data/quotes/status/reset", { method: "POST" });
 
-export const apiGetMarketStatus = async () => {
-  const res = await fetch("/api/market/status", { credentials: "include" });
-  if (!res.ok) throw new Error(`API GET /market/status → ${res.status}`);
-  return res.json() as Promise<ApiMarketStatus>;
-};
+export const apiGetMarketStatus = () =>
+  request<ApiMarketStatus>("/market/status");
 
 // ── Options data (broker-backed) ──────────────────────────────────────────────
 
