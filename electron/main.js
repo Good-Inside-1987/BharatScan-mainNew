@@ -20,7 +20,7 @@
  *                             dist/ folder; BrowserWindow loads Express directly.
  */
 
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, shell } = require('electron');
 app.setName('BharatScan');
 const { spawn }                       = require('child_process');
 const path                            = require('path');
@@ -153,6 +153,13 @@ function createWindow() {
       nodeIntegration:  false,
       sandbox:          true,
     },
+  });
+
+  // Route every window.open() call (e.g. Fyers OAuth page) to the OS default
+  // browser instead of opening a bare child BrowserWindow with no address bar.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
   });
 
   mainWindow.loadURL(APP_URL);
