@@ -58,6 +58,13 @@ export const config = {
   // Only the retention depth differs.
   eodRetentionYears: isReplit ? 3 : 10,
 
+  // ── EOD stock data universe ─────────────────────────────────────
+  // Replit: restrict to F&O-eligible stocks (~211) to stay within the daily
+  // API budget — syncing all ~2960 symbols exhausts the budget before
+  // Intraday sync gets a chance to run.
+  // Oracle: all NSE stocks (no budget concern).
+  eodUniverse: isReplit ? "fo_stocks" : "all_nse" as const,
+
   // ── Intraday stock data ─────────────────────────────────────────
   // Replit: only F&O stocks (~211), 5-min candles, 3-month rolling window
   // Oracle: all NSE stocks, 1-min candles, kept forever

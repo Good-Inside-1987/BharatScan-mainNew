@@ -304,12 +304,14 @@ export async function runEodSyncJob(
       return { completed: 0, skippedBudget: 0, failed: 0, skippedNoAdapter: true };
     }
 
-    const symbolRows = marketDb
-      .prepare(`SELECT symbol FROM symbols WHERE is_delisted = 0`)
-      .all() as unknown as SymbolRow[];
+    const sql =
+      config.eodUniverse === "fo_stocks"
+        ? `SELECT symbol FROM symbols WHERE is_delisted = 0 AND is_fo_eligible = 1`
+        : `SELECT symbol FROM symbols WHERE is_delisted = 0`;
+    const symbolRows = marketDb.prepare(sql).all() as unknown as SymbolRow[];
     const symbols = symbolRows.map((r) => r.symbol);
 
-    console.log(`[syncJobs] EOD sync starting — ${symbols.length} symbols for ${date}`);
+    console.log(`[syncJobs] EOD sync starting — ${symbols.length} symbols for ${date} (universe: ${config.eodUniverse})`);
     const stats = await runSymbolLoop(symbols, "1D", date, (s) => isEodCovered(s, date));
 
     // Retention cleanup is handled centrally by cleanupJob.ts (6 PM IST).
