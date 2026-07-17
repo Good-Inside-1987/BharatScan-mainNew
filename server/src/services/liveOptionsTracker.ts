@@ -127,6 +127,9 @@ const indexStates = new Map<string, IndexAtmState>();
 
 let rollTimer: ReturnType<typeof setInterval> | null = null;
 
+let lastInitAttemptAt: number | null = null;
+const INIT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
 /** How often to check whether the ATM has moved. */
 const ATM_ROLL_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
 
@@ -263,6 +266,16 @@ function rollAllIndices(): void {
  * option chains (graceful degradation).
  */
 export async function initAtmOptionSubscriptions(): Promise<void> {
+  if (lastInitAttemptAt !== null && Date.now() - lastInitAttemptAt < INIT_COOLDOWN_MS) {
+    console.log(
+      "[liveOptionsTracker] Skipping re-init — last attempt was %ds ago (cooldown %ds)",
+      Math.round((Date.now() - lastInitAttemptAt) / 1000),
+      INIT_COOLDOWN_MS / 1000
+    );
+    return;
+  }
+  lastInitAttemptAt = Date.now();
+
   const adapter = await getAuthenticatedAdapter();
   if (!adapter) {
     console.warn(

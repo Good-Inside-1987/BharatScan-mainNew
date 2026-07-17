@@ -475,11 +475,11 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let intentionallyClosed = false;
 
 function buildSubscribeMessage(symbols: string[]): string {
-  return JSON.stringify({ T: "SUB_L1", L1: 1, SLIST: symbols });
+  return JSON.stringify({ symbol: symbols, type: "symbolUpdate" });
 }
 
 function buildUnsubscribeMessage(symbols: string[]): string {
-  return JSON.stringify({ T: "UNSUB_L1", L1: 1, SLIST: symbols });
+  return JSON.stringify({ symbol: symbols, type: "symbolUpdate", unsubscribe: true });
 }
 
 /**
@@ -582,7 +582,7 @@ export async function connect(): Promise<void> {
 
   try {
     const authToken = `${session.appId}:${session.accessToken}`;
-    const url = `${FYERS_DATA_WS_URL}?type=symbolData&access_token=${encodeURIComponent(authToken)}`;
+    const url = `${FYERS_DATA_WS_URL}?access_token=${encodeURIComponent(authToken)}`;
     const socket = new WebSocket(url);
 
     const handshakeTimer = setTimeout(() => {
@@ -617,12 +617,12 @@ export async function connect(): Promise<void> {
       // "close" will also fire and drive the reconnect; avoid double-scheduling here.
     });
 
-    socket.on("close", () => {
+    socket.on("close", (code, reason) => {
       clearTimeout(handshakeTimer);
       if (ws !== socket) return; // a newer socket has already replaced this one
       connecting = false;
       ws = null;
-      console.warn("[liveFeedService] Feed connection closed");
+      console.warn("[liveFeedService] Feed connection closed (code=%s, reason=%s)", code, reason?.toString() || "none");
       scheduleReconnect();
     });
 
