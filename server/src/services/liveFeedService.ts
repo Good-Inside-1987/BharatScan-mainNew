@@ -594,6 +594,25 @@ export async function connect(): Promise<void> {
       scheduleReconnect();
     }, HANDSHAKE_TIMEOUT_MS);
 
+    socket.on("unexpected-response", (req, res) => {
+      clearTimeout(handshakeTimer);
+      let body = "";
+      res.on("data", (chunk) => { body += chunk; });
+      res.on("end", () => {
+        console.warn(
+          "[liveFeedService] Handshake rejected: status=%d headers=%s body=%s",
+          res.statusCode,
+          JSON.stringify(res.headers),
+          body.slice(0, 500)
+        );
+        if (ws === socket) {
+          connecting = false;
+          ws = null;
+          scheduleReconnect();
+        }
+      });
+    });
+
     socket.on("open", () => {
       clearTimeout(handshakeTimer);
       if (ws !== socket) return; // stale socket superseded by a newer attempt

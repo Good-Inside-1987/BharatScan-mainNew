@@ -245,6 +245,8 @@ export class FyersAdapter implements BrokerAdapter {
   ): Promise<OptionChainData> {
     const url = new URL(`${FYERS_DATA_BASE}/options-chain-v3`);
     url.searchParams.set("symbol", underlying);
+    url.searchParams.set("strikecount", "20");
+    url.searchParams.set("timestamp", "");
     if (expiry) url.searchParams.set("expiry", expiry);
 
     const data = await this.fetchJson<{
