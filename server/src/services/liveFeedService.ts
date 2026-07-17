@@ -571,6 +571,7 @@ export async function connect(): Promise<void> {
   }
 
   const session = getFyersSession();
+  console.log('[DEBUG-TEMP]', session ? session.appId + ':' + session.accessToken : 'null');
   if (!session) {
     // No active session yet — try again later rather than failing hard.
     scheduleReconnect();
