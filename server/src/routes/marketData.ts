@@ -46,12 +46,17 @@ function hasConnectedBroker(): boolean {
 function handleBrokerError(err: unknown, res: Response, context: string): boolean {
   if (err instanceof SessionExpiredError) {
     console.warn("[marketData] %s — session expired: %s", context, err.message);
-    res.status(401).json({ error: err.message, code: err.code });
+    // Use 503 (not 401) for broker-originated auth failures.
+    // Returning 401 here would make the client's auth middleware think the
+    // BharatScan API key is invalid, fire auth:unauthorized, clear the
+    // localStorage token, and send the user back to the LoginGate — even
+    // though they are perfectly authenticated to this server.
+    res.status(503).json({ error: err.message, code: err.code, broker_error: true });
     return true;
   }
   if (err instanceof AuthenticationError) {
     console.warn("[marketData] %s — not authenticated: %s", context, err.message);
-    res.status(401).json({ error: err.message, code: err.code });
+    res.status(503).json({ error: err.message, code: err.code, broker_error: true });
     return true;
   }
   if (err instanceof RateLimitError) {

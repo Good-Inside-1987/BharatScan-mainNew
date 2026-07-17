@@ -55,10 +55,15 @@ function classifyBrokerError(err: unknown): {
     return { status: BrokerStatus.BROKER_UNAVAILABLE, httpCode: 503, message: err.message };
   }
   if (err instanceof SessionExpiredError) {
-    return { status: BrokerStatus.SESSION_EXPIRED, httpCode: 401, message: err.message };
+    // 503 not 401: a broker session expiry is an upstream service failure,
+    // not a BharatScan auth failure. Returning 401 would make the client
+    // fire auth:unauthorized, clear the localStorage token, and log the user
+    // out of the app even though their BharatScan API key is perfectly valid.
+    return { status: BrokerStatus.SESSION_EXPIRED, httpCode: 503, message: err.message };
   }
   if (err instanceof AuthenticationError) {
-    return { status: BrokerStatus.INVALID_CREDENTIALS, httpCode: 401, message: err.message };
+    // 422: the submitted broker credentials are semantically invalid.
+    return { status: BrokerStatus.INVALID_CREDENTIALS, httpCode: 422, message: err.message };
   }
 
   // ── Generic Error message pattern matching (existing adapters) ────────────
@@ -76,14 +81,16 @@ function classifyBrokerError(err: unknown): {
   }
 
   if (/invalid.*(api.?key|app.?id|secret|client.?code|credentials)/i.test(message)) {
-    return { status: BrokerStatus.INVALID_CREDENTIALS, httpCode: 401, message };
+    // 422: bad broker credentials supplied by the user — not a BharatScan auth issue.
+    return { status: BrokerStatus.INVALID_CREDENTIALS, httpCode: 422, message };
   }
 
   if (/totp|otp|auth.?code|authorization.?code/i.test(message)) {
-    return { status: BrokerStatus.LOGIN_FAILED, httpCode: 401, message };
+    // 422: bad TOTP / auth code — user error on the broker side.
+    return { status: BrokerStatus.LOGIN_FAILED, httpCode: 422, message };
   }
 
-  return { status: BrokerStatus.LOGIN_FAILED, httpCode: 401, message };
+  return { status: BrokerStatus.LOGIN_FAILED, httpCode: 422, message };
 }
 
 // ── Connect rate limiter ───────────────────────────────────────────────────────
