@@ -314,7 +314,7 @@ async function syncOptionsForUnderlying(
   let expiries: string[];
   try {
     const getExpiries = anyAdapter.getOptionExpiries as (s: string) => Promise<string[]>;
-    expiries = await getExpiries.call(adapter, fyersSymbol);
+    expiries = await throttleCall(() => getExpiries.call(adapter, fyersSymbol));
   } catch (err) {
     console.error("[optionsDataService] Failed to fetch expiries for %s: %s", uName, err instanceof Error ? err.message : String(err));
     return { completed: 0, failed: 1, budgetExhausted: false };
@@ -328,7 +328,7 @@ async function syncOptionsForUnderlying(
 
   let chain;
   try {
-    chain = await adapter.getOptionChain(fyersSymbol, expiry);
+    chain = await throttleCall(() => adapter.getOptionChain(fyersSymbol, expiry));
   } catch (err) {
     console.error("[optionsDataService] Failed to fetch option chain for %s %s: %s", uName, expiry, err instanceof Error ? err.message : String(err));
     return { completed: 0, failed: 1, budgetExhausted: false };
