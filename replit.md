@@ -136,6 +136,32 @@ Underlying → Fyers symbol mapping (in optionsDataService.ts):
 - NIFTY → NSE:NIFTY50-INDEX · BANKNIFTY → NSE:NIFTYBANK-INDEX · FINNIFTY → NSE:FINNIFTY-INDEX
 - SENSEX → BSE:SENSEX-INDEX · MIDCPNIFTY → NSE:MIDCPNIFTY-INDEX
 
+## Live feed Python dependency
+
+`liveFeedService.ts` now bridges to the Fyers v3 data WebSocket via the official
+Python SDK rather than implementing the binary protocol directly in Node. This means
+the Node server spawns `server/python/fyers_ws_bridge.py` as a child process whenever
+a Fyers session is connected.
+
+**Required on every machine/environment that runs the server:**
+
+```bash
+pip install -r server/python/requirements.txt
+```
+
+(The file contains `fyers-apiv3`. Python 3 must be on `PATH`.)
+
+- **Replit**: `python3` resolves to the `.pythonlibs` Python 3.11 environment.
+  `fyers-apiv3` is installed there already; re-run `uv pip install fyers-apiv3 --python python3.11`
+  if `.pythonlibs` is ever wiped (e.g. after a Nix rebuild).
+- **Oracle Cloud / Linux VPS**: same — `python3` and `pip3` must be installed.
+- **Electron packaging**: bundling the Python sidecar into the packaged Electron app
+  is a deliberate **follow-up** not covered here — the Electron build currently does
+  not ship the Python environment or `fyers-apiv3`.
+
+If `python3` is missing or `fyers_apiv3` is not installed, the server will log a
+clear error and retry on the next reconnect cycle rather than crashing.
+
 ## Gotchas
 
 - `PORT` and `BASE_PATH` default to `5173` and `/` if not set (safe for local dev)

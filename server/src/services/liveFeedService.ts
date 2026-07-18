@@ -30,12 +30,11 @@
  * subscription manager, cache, and reconnect logic are protocol-agnostic.
  */
 
-import WebSocket from "ws";
+import { spawn, type ChildProcess } from "child_process";
+import readline from "readline";
 import { appDb, marketDb } from "../db.js";
 import { decrypt } from "../lib/encryption.js";
 import type { Quote } from "../adapters/types.js";
-
-const FYERS_DATA_WS_URL = "wss://api.fyers.in/socket/v2/data/";
 export const MAX_SUBSCRIBED_SYMBOLS = 200;
 
 const RECONNECT_BASE_DELAY_MS = 1000;
@@ -466,20 +465,35 @@ class SubscriptionManager {
 
 const subscriptions = new SubscriptionManager();
 
-// ── WebSocket connection lifecycle ──────────────────────────────────────────
+// ── Python sidecar connection lifecycle ─────────────────────────────────────
+//
+// The Fyers v3 data feed (wss://socket.fyers.in/hsm/v1-5/prod) uses a
+// proprietary binary framing protocol implemented by the official Python SDK
+// (fyers-apiv3). Rather than reimplementing the binary protocol in Node,
+// we spawn fyers_ws_bridge.py as a child process and communicate with it
+// over newline-delimited JSON on stdin/stdout.
 
-let ws: WebSocket | null = null;
+let child: ChildProcess | null = null;
+let isConnectedFlag = false;
 let connecting = false;
 let reconnectAttempt = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let intentionallyClosed = false;
 
+// Log the first N distinct raw tick shapes we receive from the Python bridge
+// so we can inspect real Fyers v3 field names before hardening the field
+// mapping in parseTickMessage below.
+let rawShapesLogged = 0;
+const MAX_RAW_SHAPES_TO_LOG = 10;
+
+/** JSON control line sent to the Python bridge's stdin to subscribe. */
 function buildSubscribeMessage(symbols: string[]): string {
-  return JSON.stringify({ symbol: symbols, type: "symbolUpdate" });
+  return JSON.stringify({ action: "subscribe", symbols, mode: "full" });
 }
 
+/** JSON control line sent to the Python bridge's stdin to unsubscribe. */
 function buildUnsubscribeMessage(symbols: string[]): string {
-  return JSON.stringify({ symbol: symbols, type: "symbolUpdate", unsubscribe: true });
+  return JSON.stringify({ action: "unsubscribe", symbols });
 }
 
 /**
@@ -516,27 +530,6 @@ function parseTickMessage(raw: unknown): Quote | null {
   };
 }
 
-function handleMessage(data: WebSocket.RawData): void {
-  let parsed: unknown;
-  try {
-    const text = typeof data === "string" ? data : data.toString("utf8");
-    parsed = JSON.parse(text);
-  } catch {
-    // Non-JSON frames (e.g. binary heartbeats) are ignored — never crash the
-    // feed over a message we don't understand.
-    return;
-  }
-
-  const quote = parseTickMessage(parsed);
-  if (!quote) return;
-
-  quoteCache.set(quote.symbol, quote);
-  // Candle aggregation happens after the cache is updated (and is itself
-  // just an in-memory map update except on a completed minute boundary),
-  // so it never delays ticks from reaching the broadcast/cache path.
-  recordTick(quote);
-}
-
 function scheduleReconnect(): void {
   if (intentionallyClosed || reconnectTimer) return;
   const delay = Math.min(
@@ -557,21 +550,21 @@ function scheduleReconnect(): void {
 }
 
 /**
- * Opens the WebSocket connection if a Fyers session is available and no
- * connection/attempt is already in flight. Safe to call repeatedly (e.g.
- * from a periodic check) — it's a no-op when already connected/connecting.
+ * Spawns the Python bridge (fyers_ws_bridge.py) as a child process if a
+ * Fyers session is available and no connection/attempt is already in flight.
+ * Safe to call repeatedly — it's a no-op when already connected/connecting.
  * Never throws; failures are logged and trigger a backoff retry instead.
+ *
+ * The Python bridge implements the Fyers v3 binary WebSocket protocol via the
+ * official fyers-apiv3 SDK. Communication with the bridge is via
+ * newline-delimited JSON on stdin/stdout:
+ *   stdout ← {"__control__":"connected"|"closed"|"error"} or raw tick dicts
+ *   stdin  → {"action":"subscribe"|"unsubscribe","symbols":[...]}
  */
 export async function connect(): Promise<void> {
-  if (
-    connecting ||
-    (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING))
-  ) {
-    return;
-  }
+  if (connecting || isConnectedFlag) return;
 
   const session = getFyersSession();
-  console.log('[DEBUG-TEMP]', session ? session.appId + ':' + session.accessToken : 'null');
   if (!session) {
     // No active session yet — try again later rather than failing hard.
     scheduleReconnect();
@@ -581,106 +574,145 @@ export async function connect(): Promise<void> {
   connecting = true;
   intentionallyClosed = false;
 
+  let spawnedChild: ChildProcess;
   try {
-    const authToken = `${session.appId}:${session.accessToken}`;
-    const url = `${FYERS_DATA_WS_URL}?access_token=${encodeURIComponent(authToken)}`;
-    const socket = new WebSocket(url);
-
-    const handshakeTimer = setTimeout(() => {
-      if (ws !== socket || socket.readyState !== WebSocket.CONNECTING) return;
-      console.warn("[liveFeedService] Handshake timed out after %dms — forcing reconnect", HANDSHAKE_TIMEOUT_MS);
-      connecting = false;
-      ws = null;
-      socket.terminate();
-      scheduleReconnect();
-    }, HANDSHAKE_TIMEOUT_MS);
-
-    socket.on("unexpected-response", (req, res) => {
-      clearTimeout(handshakeTimer);
-      let body = "";
-      res.on("data", (chunk) => { body += chunk; });
-      res.on("end", () => {
-        console.warn(
-          "[liveFeedService] Handshake rejected: status=%d headers=%s body=%s",
-          res.statusCode,
-          JSON.stringify(res.headers),
-          body.slice(0, 500)
-        );
-        if (ws === socket) {
-          connecting = false;
-          ws = null;
-          scheduleReconnect();
-        }
-      });
-    });
-
-    socket.on("open", () => {
-      clearTimeout(handshakeTimer);
-      if (ws !== socket) return; // stale socket superseded by a newer attempt
-      connecting = false;
-      reconnectAttempt = 0;
-      console.log("[liveFeedService] Connected to Fyers data feed");
-      // Re-subscribe to everything we were tracking (e.g. after a reconnect).
-      const symbols = subscriptions.list();
-      if (symbols.length > 0) socket.send(buildSubscribeMessage(symbols));
-    });
-
-    socket.on("message", (data) => {
-      if (ws !== socket) return; // ignore stray messages from a superseded socket
-      handleMessage(data);
-    });
-
-    socket.on("error", (err) => {
-      clearTimeout(handshakeTimer);
-      if (ws !== socket) return;
-      console.warn("[liveFeedService] Feed error: %s", err instanceof Error ? err.message : String(err));
-      // "close" will also fire and drive the reconnect; avoid double-scheduling here.
-    });
-
-    socket.on("close", (code, reason) => {
-      clearTimeout(handshakeTimer);
-      if (ws !== socket) return; // a newer socket has already replaced this one
-      connecting = false;
-      ws = null;
-      console.warn("[liveFeedService] Feed connection closed (code=%s, reason=%s)", code, reason?.toString() || "none");
-      scheduleReconnect();
-    });
-
-    ws = socket;
+    spawnedChild = spawn(
+      "python3",
+      ["server/python/fyers_ws_bridge.py"],
+      {
+        env: {
+          ...process.env,
+          FYERS_APP_ID: session.appId,
+          FYERS_ACCESS_TOKEN: session.accessToken,
+        },
+      }
+    );
   } catch (err) {
     connecting = false;
-    console.warn(
-      "[liveFeedService] Failed to open feed connection: %s",
+    console.error(
+      "[liveFeedService] Failed to spawn Python bridge — ensure python3 is on PATH and run `pip install -r server/python/requirements.txt`: %s",
       err instanceof Error ? err.message : String(err)
     );
     scheduleReconnect();
+    return;
   }
+
+  const handshakeTimer = setTimeout(() => {
+    if (child !== spawnedChild) return;
+    console.warn(
+      "[liveFeedService] Handshake timed out after %dms — killing bridge and reconnecting",
+      HANDSHAKE_TIMEOUT_MS
+    );
+    connecting = false;
+    isConnectedFlag = false;
+    child = null;
+    spawnedChild.kill();
+    scheduleReconnect();
+  }, HANDSHAKE_TIMEOUT_MS);
+
+  const rl = readline.createInterface({ input: spawnedChild.stdout! });
+
+  rl.on("line", (line) => {
+    if (child !== spawnedChild) return; // stale bridge superseded by a newer spawn
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return; // malformed line — skip
+    }
+
+    const msg = parsed as Record<string, unknown>;
+
+    // ── Control frames ──────────────────────────────────────────────────────
+    if (msg.__control__ === "connected") {
+      clearTimeout(handshakeTimer);
+      connecting = false;
+      isConnectedFlag = true;
+      reconnectAttempt = 0;
+      console.log("[liveFeedService] Connected to Fyers data feed (Python bridge)");
+      // Re-subscribe to everything we were tracking (e.g. after a reconnect).
+      const symbols = subscriptions.list();
+      if (symbols.length > 0) sendIfOpen(buildSubscribeMessage(symbols));
+      return;
+    }
+
+    if (msg.__control__ === "error" || msg.__control__ === "closed") {
+      clearTimeout(handshakeTimer);
+      console.warn("[liveFeedService] Bridge control: %s", line);
+      connecting = false;
+      isConnectedFlag = false;
+      child = null;
+      scheduleReconnect();
+      return;
+    }
+
+    // ── Tick frame ──────────────────────────────────────────────────────────
+    // Log the first MAX_RAW_SHAPES_TO_LOG distinct shapes so we can inspect
+    // the real Fyers v3 field names before hardening parseTickMessage.
+    if (rawShapesLogged < MAX_RAW_SHAPES_TO_LOG) {
+      console.log("[liveFeedService][raw-tick-shape #%d] %s", rawShapesLogged + 1, JSON.stringify(parsed));
+      rawShapesLogged++;
+    }
+
+    const quote = parseTickMessage(parsed);
+    if (!quote) return;
+
+    quoteCache.set(quote.symbol, quote);
+    recordTick(quote);
+  });
+
+  spawnedChild.on("error", (err) => {
+    clearTimeout(handshakeTimer);
+    if (child !== spawnedChild) return;
+    const isNotFound = (err as NodeJS.ErrnoException).code === "ENOENT";
+    console.error(
+      "[liveFeedService] Python bridge process error%s: %s",
+      isNotFound ? " (python3 not found — ensure it is on PATH and run `pip install -r server/python/requirements.txt`)" : "",
+      err.message
+    );
+    connecting = false;
+    isConnectedFlag = false;
+    child = null;
+    scheduleReconnect();
+  });
+
+  spawnedChild.on("close", (code) => {
+    clearTimeout(handshakeTimer);
+    if (child !== spawnedChild) return;
+    connecting = false;
+    isConnectedFlag = false;
+    child = null;
+    console.warn("[liveFeedService] Python bridge exited (code=%s)", code);
+    scheduleReconnect();
+  });
+
+  child = spawnedChild;
 }
 
-/** True when the WebSocket connection is open and receiving ticks. */
+/** True when the Python bridge is running and has sent the "connected" handshake. */
 export function isConnected(): boolean {
-  return !!ws && ws.readyState === WebSocket.OPEN;
+  return isConnectedFlag;
 }
 
-/** Closes the connection and stops any pending reconnect attempts. */
+/** Kills the Python bridge and stops any pending reconnect attempts. */
 export function disconnect(): void {
   intentionallyClosed = true;
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
-  if (ws) {
-    ws.removeAllListeners();
-    ws.close();
-    ws = null;
+  isConnectedFlag = false;
+  if (child) {
+    child.kill();
+    child = null;
   }
 }
 
 function sendIfOpen(message: string): void {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(message);
+  if (child && isConnectedFlag && child.stdin) {
+    child.stdin.write(message + "\n");
   }
-  // If not open yet, the next successful `open` handler re-subscribes from
+  // If not open yet, the next "connected" control line re-subscribes from
   // subscriptions.list(), so pending adds are not lost.
 }
 
