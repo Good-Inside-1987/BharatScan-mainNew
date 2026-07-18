@@ -480,12 +480,6 @@ let reconnectAttempt = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let intentionallyClosed = false;
 
-// Log the first N distinct raw tick shapes we receive from the Python bridge
-// so we can inspect real Fyers v3 field names before hardening the field
-// mapping in parseTickMessage below.
-let rawShapesLogged = 0;
-const MAX_RAW_SHAPES_TO_LOG = 10;
-
 /** JSON control line sent to the Python bridge's stdin to subscribe. */
 function buildSubscribeMessage(symbols: string[]): string {
   return JSON.stringify({ action: "subscribe", symbols, mode: "full" });
@@ -505,6 +499,12 @@ function parseTickMessage(raw: unknown): Quote | null {
   if (!raw || typeof raw !== "object") return null;
   const msg = raw as Record<string, unknown>;
 
+  // Explicitly skip known control/ack frame types so the null return is
+  // intentional rather than incidental (these lack `ltp` but are not errors).
+  // Types confirmed from production logs: "cn" (connect ack), "ful" (full-mode
+  // ack), "sub" (subscribe ack), "uns" (unsubscribe ack).
+  if (typeof msg.type === "string" && ["cn", "ful", "sub", "uns"].includes(msg.type)) return null;
+
   // Fyers tick frames carry the symbol under `symbol` or `n`, and LTP under
   // `ltp` or `lp` depending on feed mode. Accept either.
   const symbol = (msg.symbol ?? msg.n) as string | undefined;
@@ -516,7 +516,9 @@ function parseTickMessage(raw: unknown): Quote | null {
   const low = (msg.low_price ?? msg.low ?? msg.l) as number | undefined;
   const close = (msg.prev_close_price ?? msg.close ?? msg.c) as number | undefined;
   const volume = (msg.volume ?? msg.vol_traded_today ?? msg.v) as number | undefined;
-  const tt = (msg.tt ?? msg.last_traded_time) as number | undefined;
+  // exch_feed_time confirmed on index ticks (unix seconds); tt / last_traded_time
+  // kept as fallbacks for option/depth ticks not yet observed in production.
+  const tt = (msg.exch_feed_time ?? msg.tt ?? msg.last_traded_time) as number | undefined;
 
   return {
     symbol,
@@ -647,12 +649,9 @@ export async function connect(): Promise<void> {
     }
 
     // ── Tick frame ──────────────────────────────────────────────────────────
-    // Log the first MAX_RAW_SHAPES_TO_LOG distinct shapes so we can inspect
-    // the real Fyers v3 field names before hardening parseTickMessage.
-    if (rawShapesLogged < MAX_RAW_SHAPES_TO_LOG) {
-      console.log("[liveFeedService][raw-tick-shape #%d] %s", rawShapesLogged + 1, JSON.stringify(parsed));
-      rawShapesLogged++;
-    }
+    // Re-enable the line below temporarily if you need to verify field names
+    // for a new instrument type (e.g. options ticks, depth ticks).
+    // console.log("[liveFeedService][raw-tick-shape]", JSON.stringify(parsed));
 
     const quote = parseTickMessage(parsed);
     if (!quote) return;
