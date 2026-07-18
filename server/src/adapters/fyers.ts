@@ -245,9 +245,16 @@ export class FyersAdapter implements BrokerAdapter {
   ): Promise<OptionChainData> {
     const url = new URL(`${FYERS_DATA_BASE}/options-chain-v3`);
     url.searchParams.set("symbol", underlying);
-    url.searchParams.set("strikecount", "20");
+    // 50 covers both index (±30) and stock (±20) strike ranges defined in
+    // optionsDataService.strikeRange(); the chain API requires this param.
+    url.searchParams.set("strikecount", "50");
+    // NOTE: The Fyers options-chain-v3 API uses `timestamp` to target a specific
+    // expiry, but every confirmed-working community example sends it as "".
+    // The correct non-empty format for future expiries is unconfirmed, so we
+    // always send "" (returning the nearest expiry) and ignore the `expiry`
+    // argument for URL construction. Callers pass `expiry` so the signature is
+    // stable for when this is confirmed and can be wired up properly.
     url.searchParams.set("timestamp", "");
-    if (expiry) url.searchParams.set("expiry", expiry);
 
     const data = await this.fetchJson<{
       s: string;
