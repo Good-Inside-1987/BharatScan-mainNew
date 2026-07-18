@@ -95,7 +95,6 @@ def stdin_reader(ws):
         try:
             if action == "subscribe":
                 ws.subscribe(symbols=symbols, data_type="SymbolUpdate")
-                ws.mode(ws.FullMode)
             elif action == "unsubscribe":
                 ws.unsubscribe(symbols=symbols)
         except Exception as e:
