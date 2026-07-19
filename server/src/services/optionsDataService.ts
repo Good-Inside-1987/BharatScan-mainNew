@@ -529,7 +529,11 @@ export async function runOptionsSyncJob(
     // Retention cleanup is handled centrally by cleanupJob.ts (6 PM IST).
 
     const stats = { completed, skippedBudget, failed };
-    finishSyncLog(logId, "completed", stats);
+    if (completed === 0 && underlyings.length > 0) {
+      finishSyncLog(logId, "failed", stats, "All underlyings failed — 0 of " + underlyings.length + " completed");
+    } else {
+      finishSyncLog(logId, "completed", stats);
+    }
     console.log(
       "[optionsDataService] Nightly options sync done — completed=%d skippedBudget=%d failed=%d",
       completed, skippedBudget, failed
