@@ -315,6 +315,32 @@ export async function runEodSyncJob(
     console.log(`[syncJobs] EOD sync starting — ${symbols.length} symbols for ${date} (universe: ${config.eodUniverse})`);
     const stats = await runSymbolLoop(symbols, "1D", date, (s) => isEodCovered(s, date));
 
+    // ── Index daily bars ─────────────────────────────────────────────────────
+    // These 5 symbols mirror ALL_INDEX_DEFS[*].fyersIndexSymbol in
+    // artifacts/bharatscan/src/pages/Home.tsx — keep them in sync if that
+    // list changes. Indices are NOT in the `symbols` table (not tradable
+    // equity instruments) so they are excluded from runSymbolLoop above;
+    // we fetch them here as a fixed always-run step regardless of eodUniverse.
+    const INDEX_FYERS_SYMBOLS = [
+      "NSE:NIFTY50-INDEX",
+      "NSE:NIFTYBANK-INDEX",
+      "NSE:FINNIFTY-INDEX",
+      "NSE:MIDCPNIFTY-INDEX",
+      "BSE:SENSEX-INDEX",
+    ];
+    for (const idxSymbol of INDEX_FYERS_SYMBOLS) {
+      try {
+        await getHistoricalBars(idxSymbol, "1D", date, date);
+        console.log("[syncJobs] EOD index bar fetched: %s %s", idxSymbol, date);
+      } catch (err) {
+        console.warn(
+          "[syncJobs] EOD index bar failed for %s %s: %s",
+          idxSymbol, date,
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
+
     // Retention cleanup is handled centrally by cleanupJob.ts (6 PM IST).
 
     finishSyncLog(logId, "completed", stats);
