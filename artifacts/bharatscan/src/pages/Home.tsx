@@ -477,7 +477,15 @@ function IndexCard({
     "text-amber-400";
 
   return (
-    <Card className="px-3 py-2 shadow-card hover:shadow-md transition-shadow flex items-center gap-2 group">
+    <Card className="relative px-3 py-2 shadow-card hover:shadow-md transition-shadow flex items-center gap-2 group">
+      {sourceLabel && (
+        <span
+          className={`absolute top-1.5 left-1.5 h-1.5 w-1.5 rounded-full ${
+            marketOpenNow && connected ? "bg-success animate-pulse" : "bg-amber-400"
+          }`}
+          title={marketOpenNow && connected ? "Live" : "Showing last close"}
+        />
+      )}
       {data.found ? (
         positive ? (
           <TrendingUp className="h-3.5 w-3.5 text-success shrink-0" />
@@ -497,14 +505,6 @@ function IndexCard({
             <span className="text-[9px] font-normal tracking-normal text-muted-foreground/50 shrink-0">
               ({sourceLabel})
             </span>
-          )}
-          {sourceLabel && (
-            <span
-              className={`shrink-0 h-1.5 w-1.5 rounded-full ${
-                marketOpenNow && connected ? "bg-success animate-pulse" : "bg-amber-400"
-              }`}
-              title={marketOpenNow && connected ? "Live" : "Showing last close"}
-            />
           )}
         </div>
 
