@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import type { SymbolHistory } from "@/lib/csv";
 import type { OptionsDataset } from "@/lib/options";
 import { resampleBars, type Timeframe } from "@/lib/timeframe";
-import { apiGetMarketQuotes, type ApiLiveQuote } from "@/lib/api";
+import { apiGetMarketQuotes, apiGetMarketHistory, apiGetSchedulerStatus, type ApiLiveQuote } from "@/lib/api";
 
 // ---- master index definitions (all 7 available options) ---------------------
 
@@ -407,7 +407,31 @@ function IndexCard({
   homeIndexSource: "futures" | "spot";
   onChangeSlot: (slotIndex: number, key: string) => void;
   liveQuote?: ApiLiveQuote;
+  marketOpenNow: boolean;
+  connected: boolean;
 }) {
+  // ── Last Close fallback: fetch once on mount from market history API ──────
+  const [lastCloseQuote, setLastCloseQuote] = useState<{ value: number; pct: number; pts: number } | null>(null);
+
+  useEffect(() => {
+    if (!def.fyersIndexSymbol) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    let cancelled = false;
+    apiGetMarketHistory(def.fyersIndexSymbol, "1D", from, today)
+      .then(({ bars }) => {
+        if (cancelled || bars.length < 1) return;
+        const last = bars[bars.length - 1];
+        const prev = bars.length >= 2 ? bars[bars.length - 2] : null;
+        const ref = prev ? prev.close : 0;
+        const pct = ref > 0 ? ((last.close - ref) / ref) * 100 : 0;
+        const pts = ref > 0 ? last.close - ref : 0;
+        setLastCloseQuote({ value: last.close, pct, pts });
+      })
+      .catch(() => { /* no cached data available */ });
+    return () => { cancelled = true; };
+  }, [def.fyersIndexSymbol]);
+
   const { data, sourceLabel } = useMemo(() => {
     if (liveQuote) {
       const pct = liveQuote.close > 0 ? ((liveQuote.ltp - liveQuote.close) / liveQuote.close) * 100 : 0;
@@ -428,8 +452,15 @@ function IndexCard({
     if (def.futuresSymbol) {
       return { data: lookupIndex(histories, def.aliases, latestDate), sourceLabel: "Spot" };
     }
-    return { data: lookupIndex(histories, def.aliases, latestDate), sourceLabel: null };
-  }, [liveQuote, histories, def.aliases, def.futuresSymbol, latestDate, optionsData, asOfOptionsDate, homeIndexSource]);
+    // No futuresSymbol — try spot CSV first
+    const spotResult = lookupIndex(histories, def.aliases, latestDate);
+    if (spotResult.found) return { data: spotResult, sourceLabel: null };
+    // Tier 3 (new): Last Close from market history API
+    if (def.fyersIndexSymbol && lastCloseQuote) {
+      return { data: { ...lastCloseQuote, found: true as const }, sourceLabel: "Last Close" };
+    }
+    return { data: spotResult, sourceLabel: null };
+  }, [liveQuote, histories, def.aliases, def.futuresSymbol, def.fyersIndexSymbol, latestDate, optionsData, asOfOptionsDate, homeIndexSource, lastCloseQuote]);
 
   const pcr = useMemo(
     () => def.futuresSymbol ? computePCR(optionsData, def.futuresSymbol, asOfOptionsDate) : null,
@@ -464,6 +495,14 @@ function IndexCard({
             <span className="text-[9px] font-normal tracking-normal text-muted-foreground/50 shrink-0">
               ({sourceLabel})
             </span>
+          )}
+          {sourceLabel && (
+            <span
+              className={`shrink-0 h-1.5 w-1.5 rounded-full ${
+                marketOpenNow && connected ? "bg-success animate-pulse" : "bg-amber-400"
+              }`}
+              title={marketOpenNow && connected ? "Live" : "Showing last close"}
+            />
           )}
         </div>
 
@@ -753,6 +792,29 @@ export default function Home() {
 
   const [lastCopied, setLastCopied] = useState<string | null>(null);
 
+  // ── Market status poll (30s) — drives the live/last-close status dot ────────
+  const [marketStatus, setMarketStatus] = useState<{ marketOpenNow: boolean; connected: boolean }>({
+    marketOpenNow: false,
+    connected: false,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const status = await apiGetSchedulerStatus();
+        if (cancelled) return;
+        setMarketStatus({
+          marketOpenNow: status.liveFeed.marketOpenNow,
+          connected: status.liveFeed.connected,
+        });
+      } catch { /* ignore */ }
+    };
+    poll();
+    const id = setInterval(poll, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
   // ── Live index quotes (Fyers real-time feed, when broker is connected) ──────
   const [liveIndexQuotes, setLiveIndexQuotes] = useState<Record<string, ApiLiveQuote>>({});
 
@@ -952,6 +1014,8 @@ export default function Home() {
                 homeIndexSource={homeIndexSource}
                 onChangeSlot={setSlot}
                 liveQuote={liveIndexQuotes[def.key]}
+                marketOpenNow={marketStatus.marketOpenNow}
+                connected={marketStatus.connected}
               />
             ))}
           </div>
