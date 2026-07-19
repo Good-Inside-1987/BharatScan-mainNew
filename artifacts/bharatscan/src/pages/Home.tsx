@@ -397,6 +397,8 @@ function IndexCard({
   homeIndexSource,
   onChangeSlot,
   liveQuote,
+  marketOpenNow,
+  connected,
 }: {
   def: IndexCardDef;
   slotIndex: number;
