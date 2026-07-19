@@ -1,180 +1,42 @@
 # BharatScan
 
-A Chartink-inspired stock screener and backtesting tool for Indian markets — users upload NSE bhavcopy CSVs, define scan conditions using technical indicators, and run backtests entirely in the browser.
-
-## Run & Operate
-
-- `pnpm install` — install all workspace dependencies
-- Start **"Start application"** workflow — Vite frontend on port 5000
-- Start **"Backend API server"** workflow — Express API on port 3001
-- For local dev: `pnpm dev` — starts both frontend + backend via concurrently
-- Requires Node.js 22+ (uses `node:sqlite`, stable since Node 22.5). The Replit environment module is set to `nodejs-22`.
-- Optional: set `BROKER_ENCRYPTION_KEY` secret to enable broker credential encryption (live broker integration). Not required for core scanning/backtesting/paper trading features — the server runs fine without it and just logs a warning.
+A stock screener and backtesting tool for Indian markets (NSE).
 
 ## Stack
 
-- **Monorepo**: pnpm workspaces (`artifacts/*`, `server/`, `scripts/`)
-- **Frontend**: React 19, TypeScript, Vite 7
-- **Styling**: Tailwind CSS v4, shadcn/ui (Radix-based components)
-- **Routing**: react-router-dom
-- **Data**: @tanstack/react-query, localStorage
-- **Charts**: recharts
-- **Animation**: framer-motion
-- **Validation**: zod
-- **Backend**: Express 4, Node.js built-in `node:sqlite` (no native compilation)
+- **Monorepo**: pnpm workspaces
+- **Frontend**: React 19, Vite 7, TypeScript, Tailwind CSS v4, TanStack Query
+- **Backend**: Node.js 22 (required — uses `node:sqlite`), Express 4
+- **Database**: `node:sqlite` (built-in Node.js SQLite, no native deps)
+- **Python sidecar**: `fyers_ws_bridge.py` for live Fyers broker WebSocket data
 
-## Where things live
+## Running in Development
 
-- `artifacts/bharatscan/` — main React app
-  - `src/pages/Index.tsx` — main UI and workflow
-  - `src/pages/PaperTrading.tsx` — virtual paper trading (stocks & options): accounts, positions, trade history
-  - `src/lib/indicators.ts` — all technical indicators (SMA, EMA, RSI, MACD, Bollinger, Supertrend, CPR, Camarilla, Ichimoku, etc.)
-  - `src/lib/screener.ts` — scan/backtest engine
-  - `src/lib/dataLoader.ts` — CSV/folder parsing
-  - `src/lib/universe.ts` — localStorage persistence for universe/holidays/quotes
-  - `src/lib/savedScans.ts` — API-backed persistence for saved scans
-  - `src/lib/api.ts` — typed fetch helpers for all REST endpoints
-  - `src/lib/timeframe.ts` — bar resampling (daily → weekly/monthly/quarterly/yearly)
-  - `src/components/` — UI components
-  - `src/test/` — unit tests for pivots and timeframe resampling
-- `server/` — Express backend
-  - `src/index.ts` — server entry point (port 3001)
-  - `src/db.ts` — SQLite setup via `node:sqlite`
-  - `src/routes/scans.ts` — saved scan CRUD + favorite/duplicate endpoints
-  - `src/routes/settings.ts` — app settings endpoints
-  - `src/routes/paperTrading.ts` — paper trading accounts, positions, trades CRUD
-- `bharatscan.db` — SQLite database (auto-created, gitignored)
-- `pnpm-workspace.yaml` — workspace config and catalog versions
+Two workflows run in parallel:
 
-## Architecture decisions
+| Workflow | Command | Port |
+|---|---|---|
+| Backend API server | `pnpm --filter @workspace/server run dev` | 3001 |
+| Frontend | `PORT=5000 pnpm --filter @workspace/bharatscan run dev` | 5000 |
 
-- **Client-side computation**: all CSV parsing, indicator computation, and scanning runs in the browser
-- **SQLite backend for saved scans**: Express + `node:sqlite` replaces the old IndexedDB approach; scan config stored as JSON in `scan_json` column
-- **Vite proxy**: `/api` requests in dev mode are forwarded to `http://localhost:3001`
-- **File System Access API**: uses `window.showDirectoryPicker()` for folder-based CSV loading; single CSVs also supported via file input
-- **CPR label convention**: TC = max(rawTC, rawBC), BC = min — matches Chartink/Indian platform convention so TC is always the upper boundary
-- **Heikin-Ashi**: `screener.ts` swaps in HA bars per-leaf, so every indicator automatically respects the HA toggle
-- **node:sqlite**: chosen over better-sqlite3 to avoid native compilation; available in Node.js v22.5+
-- **Paper trading margin model**: simplified — both long and short positions block full notional (qty × lot_size × price) as margin, no leverage/SPAN margin calc; closing releases margin + realized P&L back to cash_balance
-- **Paper trading P&L cadence**: recomputes every 60s against the currently loaded CSV LTP (no live feed yet); designed so an Angel One SmartAPI feed can be swapped in later without UI changes
+The frontend (port 5000) is what the user sees. It proxies `/api/*` requests to the backend on port 3001.
 
-## REST API
+## Environment Variables
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | /api/health | Health check + db version |
-| GET | /api/scans | List all scans (newest first) |
-| POST | /api/scans | Create a scan |
-| GET | /api/scans/:id | Get one scan |
-| PUT | /api/scans/:id | Update a scan |
-| DELETE | /api/scans/:id | Delete a scan |
-| PATCH | /api/scans/:id/favorite | Toggle favorite |
-| POST | /api/scans/:id/duplicate | Duplicate with "Copy of" prefix |
-| GET | /api/settings | Get all settings |
-| POST | /api/settings | Upsert a setting |
-| GET | /api/paper-trading/accounts | List paper trading accounts |
-| POST | /api/paper-trading/accounts | Create a paper trading account |
-| PUT | /api/paper-trading/accounts/:id | Rename / add funds to an account |
-| DELETE | /api/paper-trading/accounts/:id | Delete an account |
-| POST | /api/paper-trading/accounts/:id/reset | Reset account to starting balance, wipe positions/trades |
-| GET | /api/paper-trading/accounts/:id/positions | List open positions |
-| POST | /api/paper-trading/accounts/:id/positions | Open a position (stock or option) |
-| POST | /api/paper-trading/accounts/:id/positions/:posId/close | Close (fully/partially) a position |
-| GET | /api/paper-trading/accounts/:id/trades | List closed trade history |
+| Variable | Required | Purpose |
+|---|---|---|
+| `API_KEY` | Optional | Password-protects the app. If unset, login is open. |
+| `BROKER_ENCRYPTION_KEY` | Optional | Encrypts stored broker credentials. If unset, broker auth will fail. |
+| `SERVER_PORT` | Optional | Backend port (default: 3001) |
+| `DB_DIR` | Optional | SQLite database directory (default: `./data`) |
 
-## Product
+## Key Notes
 
-- Upload NSE EOD bhavcopy CSVs (folder or single file) and optional watchlist/options CSVs
-- Build scan conditions using 20+ technical indicators with a visual condition editor
-- Run scans to filter stocks matching all conditions
-- Run backtests over configurable lookback periods
-- Save, export, and import scan configurations
-- Live/Past mode toggle; market status display
-- Saved scans with favorite toggle, duplicate, and delete — backed by SQLite
-- Paper trading: multiple virtual accounts, stock & option positions, margin blocking (full notional, no leverage), live P&L (refreshes every minute against currently loaded CSV data), trade history
+- **Node.js 22+ is required** — `node:sqlite` is a Node 22.5+ built-in. The project uses `nodejs-22` module.
+- **Python**: `fyers-apiv3` must be installed (`pip install fyers-apiv3`) for live broker feeds.
+- Broker connections (Fyers/Angel One) are needed for live data and options chains. Without a connected broker, market data syncs are skipped automatically.
+- On first run the server bootstraps ~2981 NSE symbols and the 2026 holiday calendar automatically.
 
-## User preferences
+## User Preferences
 
-_None recorded yet_
-
-## Setup status
-
-- Re-imported project set up again on 2026-07-18 (second time): Node module upgraded `nodejs-20` → `nodejs-22` (reset by re-import), ran `pnpm install`, restarted `Backend API server` (port 3001, console) and `Frontend` (PORT=5000, port 5000, webview) workflows. Both verified running cleanly; app loads to the API key screen correctly.
-- Re-imported project set up again on 2026-07-13: Node module upgraded `nodejs-20` → `nodejs-22` (reset by the re-import), ran `pnpm install`, and configured two plain workflows — `Backend API server` (`pnpm --filter @workspace/server run dev`, port 3001) and `Frontend` (`PORT=5000 pnpm --filter @workspace/bharatscan run dev`, port 5000, webview). Both verified running cleanly; frontend loads correctly in the preview. Note: this re-import came in without the artifact registration the previous session used (no artifacts existed per the environment snapshot), so the frontend is now run as a regular workflow instead of an `artifacts/bharatscan: web` artifact-managed one — functionally equivalent for dev.
-- Re-imported project verified again on 2026-07-12: ran `pnpm install` (node_modules was missing after re-import) and confirmed the `Backend API server` and `Start application` workflows both come up cleanly; frontend loads correctly in the preview.
-- Re-imported project set up on 2026-07-12: `pnpm install` run; `Backend API server` (port 3001) and `artifacts/bharatscan: web` (the frontend, managed as a Replit artifact) workflows verified running. The old standalone "Start application" workflow was removed in favor of the artifact-managed one.
-- Node.js module upgraded from `nodejs-20` to `nodejs-22` (via `.replit`) — required for `node:sqlite`, which needs Node.js v22.5+.
-- `electron/package.json`: `electron` devDependency bumped from `^31.7.7` to `^40.0.0` — Electron 31 bundles Node 20 (no `node:sqlite`); Electron 40 bundles Node 24. Fixed a stale `node_modules/.bin/tsx` path in `electron/main.js` (tsx only hoists into `server/node_modules/.bin`, not the root) while verifying this.
-- **Packaged Electron builds need `server/node_modules` bundled too** (2026-07-12 fix): `electron/main.js` spawns the packaged server as `resources/server-dist/index.js` with `cwd` set to `resources/server-dist`, so Node's module resolution never finds a `node_modules` folder unless one is placed there. `electron/package.json`'s `build` script now runs `predeploy-server` first — `pnpm --filter @workspace/server deploy --prod --legacy server-deploy` — which uses pnpm's own "deploy" command to materialize a **production-only** `node_modules` for the server package (devDependencies like `tsx`/`typescript` excluded) into `electron/server-deploy/` (gitignored). `extraResources` then copies `server-deploy/node_modules` to `server-dist/node_modules` in the packaged app, alongside the existing `server/dist` copy. Running `electron-builder` directly (bypassing `pnpm run build` in `electron/`) will skip this step and produce a broken package — always package via `pnpm --dir electron run build` (or the root `electron:build` script).
-- Running Electron locally in this container requires extra system libs (glib, nss, gtk3, dbus, libgbm, etc., installed via Nix) since Electron ships its own Chromium; there is no display server here so the window itself can't render, but the spawned Express backend (and thus `node:sqlite`) starts and serves correctly.
-- `API_KEY` and `BROKER_ENCRYPTION_KEY` are optional — the server warns but runs fine without them in dev. Set them (plus rotate for prod) if you want auth/broker-credential encryption enabled.
-
-## Options broker-load feature
-
-The Options Data Source card (Settings → API / Data Source) now has a **"Load from connected broker"** toggle that:
-
-1. **Underlying dropdown** — NIFTY, BANKNIFTY, FINNIFTY, SENSEX, MIDCPNIFTY
-2. **Expiry picker** — fetches available expiries from the broker via `GET /api/market-data/options/expiries?underlying=NIFTY`
-3. **Date range + Load** — fetches 1-min candles for ATM ± 30 strikes (index) or ATM ± 20 strikes (stock), both CE and PE, saving into `options_intraday` via upsert
-4. **Progress indicator** — shows X/Y contracts as they load
-5. **Budget-aware** — respects `config.backfillDailyRequestBudget` (same as stock backfill)
-
-New files:
-- `server/src/services/optionsDataService.ts` — orchestrates the load
-- New routes in `server/src/routes/marketData.ts`: `GET /options/expiries`, `POST /options/load` (SSE stream)
-- New API helpers in `artifacts/bharatscan/src/lib/api.ts`: `apiGetOptionExpiries`, `apiLoadOptionsFromBroker` (async generator)
-- `artifacts/bharatscan/src/components/DataSourcePanels.tsx` — Options panel extended with broker-load mode
-
-Adapter changes:
-- `Bar` type gained optional `oi?: number` (Fyers returns OI as 7th candle value for options/futures)
-- `OptionChainData.strikes` now includes `ceSymbol?` / `peSymbol?` (full Fyers trading symbols extracted from chain rows)
-- `FyersAdapter.getOptionChain` now captures `expiryData` (available expiries) and `underlying_ltp` (spot price) from the response
-- `FyersAdapter.getOptionExpiries(underlying)` added — calls chain API without timestamp to get expiry list
-- `AngelAdapter.getOptionExpiries` stub added (throws — not yet implemented)
-
-Underlying → Fyers symbol mapping (in optionsDataService.ts):
-- NIFTY → NSE:NIFTY50-INDEX · BANKNIFTY → NSE:NIFTYBANK-INDEX · FINNIFTY → NSE:FINNIFTY-INDEX
-- SENSEX → BSE:SENSEX-INDEX · MIDCPNIFTY → NSE:MIDCPNIFTY-INDEX
-
-## Live feed Python dependency
-
-`liveFeedService.ts` now bridges to the Fyers v3 data WebSocket via the official
-Python SDK rather than implementing the binary protocol directly in Node. This means
-the Node server spawns `server/python/fyers_ws_bridge.py` as a child process whenever
-a Fyers session is connected.
-
-**Required on every machine/environment that runs the server:**
-
-```bash
-pip install -r server/python/requirements.txt
-```
-
-(The file contains `fyers-apiv3`. Python 3 must be on `PATH`.)
-
-- **Replit**: `python3` resolves to the `.pythonlibs` Python 3.11 environment.
-  `fyers-apiv3` is installed there already; re-run `uv pip install fyers-apiv3 --python python3.11`
-  if `.pythonlibs` is ever wiped (e.g. after a Nix rebuild).
-- **Oracle Cloud / Linux VPS**: same — `python3` and `pip3` must be installed.
-- **Electron packaging**: bundling the Python sidecar into the packaged Electron app
-  is a deliberate **follow-up** not covered here — the Electron build currently does
-  not ship the Python environment or `fyers-apiv3`.
-
-If `python3` is missing or `fyers_apiv3` is not installed, the server will log a
-clear error and retry on the next reconnect cycle rather than crashing.
-
-## Gotchas
-
-- `PORT` and `BASE_PATH` default to `5173` and `/` if not set (safe for local dev)
-- `SERVER_PORT` defaults to `3001` if not set
-- `window.showDirectoryPicker()` is only available in Chromium-based browsers (Chrome/Edge); Firefox users must use single-CSV upload
-- CPR TC/BC labels are intentionally swapped from raw formula to match Indian platform conventions
-- `node:sqlite` requires Node.js v22.5 or later (Node 24 recommended)
-- `bharatscan.db` is gitignored — it will be created fresh on each machine on first startup
-
-## Pointers
-
-- [Vite config](artifacts/bharatscan/vite.config.ts)
-- [Server entry](server/src/index.ts)
-- [DB setup](server/src/db.ts)
-- [API helpers](artifacts/bharatscan/src/lib/api.ts)
-- [pnpm workspace](pnpm-workspace.yaml)
+_No preferences recorded yet._
