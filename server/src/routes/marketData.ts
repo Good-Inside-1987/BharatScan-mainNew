@@ -100,11 +100,6 @@ router.get("/history", async (req: Request, res: Response) => {
     return;
   }
 
-  if (!hasConnectedBroker()) {
-    res.status(503).json({ error: "No broker connected" });
-    return;
-  }
-
   try {
     const bars = await getHistoricalBars(symbol, resolution, from, to);
     res.json({ symbol, resolution, bars });
