@@ -343,10 +343,16 @@ export async function runEodSyncJob(
 
     // Retention cleanup is handled centrally by cleanupJob.ts (6 PM IST).
 
-    finishSyncLog(logId, "completed", stats);
+    const runStatus: "completed" | "failed" = stats.failed === 0 ? "completed" : "failed";
+    finishSyncLog(
+      logId,
+      runStatus,
+      stats,
+      runStatus === "failed" ? `${stats.failed} of ${symbols.length} symbols failed` : undefined
+    );
     console.log(
-      "[syncJobs] EOD sync done — completed=%d skippedBudget=%d failed=%d",
-      stats.completed, stats.skippedBudget, stats.failed
+      "[syncJobs] EOD sync done — status=%s completed=%d skippedBudget=%d failed=%d",
+      runStatus, stats.completed, stats.skippedBudget, stats.failed
     );
     return stats;
   } catch (err) {
@@ -418,10 +424,16 @@ export async function runIntradaySyncJob(
 
     // Retention cleanup is handled centrally by cleanupJob.ts (6 PM IST).
 
-    finishSyncLog(logId, "completed", stats);
+    const runStatus: "completed" | "failed" = stats.failed === 0 ? "completed" : "failed";
+    finishSyncLog(
+      logId,
+      runStatus,
+      stats,
+      runStatus === "failed" ? `${stats.failed} of ${symbols.length} symbols failed` : undefined
+    );
     console.log(
-      "[syncJobs] Intraday sync done — completed=%d skippedBudget=%d failed=%d",
-      stats.completed, stats.skippedBudget, stats.failed
+      "[syncJobs] Intraday sync done — status=%s completed=%d skippedBudget=%d failed=%d",
+      runStatus, stats.completed, stats.skippedBudget, stats.failed
     );
     return stats;
   } catch (err) {
