@@ -209,6 +209,52 @@ interface SymbolRow { symbol: string }
 
 interface JobStats { completed: number; skippedBudget: number; failed: number }
 
+// Fyers surfaces overload/rate-limiting two different ways under load:
+//   1. An HTML page instead of JSON — already normalized by fyers.ts's
+//      fetchJson() into Error("Rate limited by Fyers (received HTML instead of JSON)").
+//   2. A well-formed JSON error with message "Could not authenticate the user" —
+//      this is Fyers' own documented quirk: their gateway returns this exact
+//      auth-sounding message when a valid, already-authenticated session is
+//      simply being throttled for sending requests too fast. It is NOT a real
+//      session/token problem (those come through as AuthenticationError /
+//      SessionExpiredError from marketDataService.ts instead).
+// Both are almost always transient — a short backoff and retry succeeds.
+const TRANSIENT_OVERLOAD_PATTERNS = [
+  /rate limited by fyers/i,
+  /could not authenticate the user/i,
+];
+
+function isTransientOverloadError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return TRANSIENT_OVERLOAD_PATTERNS.some((re) => re.test(message));
+}
+
+async function fetchBarsWithRetry(
+  symbol: string,
+  resolution: string,
+  date: string,
+  maxRetries: number = 2
+): Promise<Awaited<ReturnType<typeof getHistoricalBars>>> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await getHistoricalBars(toFyersSymbol(symbol), resolution, date, date);
+    } catch (err) {
+      lastErr = err;
+      if (err instanceof AuthenticationError || err instanceof SessionExpiredError) throw err;
+      if (!isTransientOverloadError(err) || attempt === maxRetries) throw err;
+      const backoffMs = 1000 * (attempt + 1); // 1s, then 2s
+      console.warn(
+        "[syncJobs] Transient overload syncing %s @ %s (attempt %d/%d) — retrying in %dms: %s",
+        symbol, date, attempt + 1, maxRetries + 1, backoffMs,
+        err instanceof Error ? err.message : String(err)
+      );
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    }
+  }
+  throw lastErr;
+}
+
 /**
  * Runs the fetch loop for a list of symbols against a single target date,
  * skipping symbols already covered locally (free) and stopping the broker
@@ -242,8 +288,8 @@ async function runSymbolLoop(
     }
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      const bars = await getHistoricalBars(toFyersSymbol(symbol), resolution, date, date);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const bars = await fetchBarsWithRetry(symbol, resolution, date);
       if (bars.length > 0) {
         stats.completed++;
       } else {
