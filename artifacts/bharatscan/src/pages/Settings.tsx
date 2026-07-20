@@ -1281,12 +1281,13 @@ export default function Settings() {
                               {formatDate(broker.token_generated_at)}
                             </div>
                             <div>
-                              <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Session Valid Until</span>
+                              <span className="block text-[9px] uppercase tracking-wide text-muted-foreground/50 mb-0.5">Estimated Valid Until</span>
                               {(() => {
                                 const d = new Date(broker.token_generated_at);
                                 d.setHours(d.getHours() + 24);
                                 return formatDate(d.toISOString());
                               })()}
+                              <p className="mt-1 text-[9px] text-muted-foreground/60 leading-snug">Fyers token lifetime can vary — if live data stops working, re-connect regardless of this estimate.</p>
                             </div>
                           </div>
                         )}
