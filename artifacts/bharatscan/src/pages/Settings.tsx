@@ -1643,11 +1643,18 @@ export default function Settings() {
 
                 {marketStatus && (
                   <>
-                    {[
+                    {(() => {
+                      const brokerCurrentlyConnected = brokers.some((b) => b.status === "connected");
+                      return [
                       { label: "EOD Sync (4:00 PM IST)", job: marketStatus.nightlySync.eod },
                       { label: "Intraday Sync (4:30 PM IST)", job: marketStatus.nightlySync.intraday },
                       { label: "Options Sync (5:00 PM IST)", job: marketStatus.nightlySync.options },
-                    ].map(({ label, job }) => (
+                    ].map(({ label, job }) => {
+                      const isStaleNoBrokerFailure =
+                        job.status === "failed" &&
+                        job.errorMessage?.toLowerCase().includes("no broker connected") &&
+                        brokerCurrentlyConnected;
+                      return (
                       <div key={job.jobName} className="pb-2 border-b border-border/20 last:border-0 last:pb-0 space-y-1">
                         <div className="flex items-center justify-between text-[10px]">
                           <span className="text-foreground font-medium">{label}</span>
@@ -1670,6 +1677,11 @@ export default function Settings() {
                         {job.status === "failed" && job.errorMessage && (
                           <p className="text-[10px] text-red-400">{job.errorMessage}</p>
                         )}
+                        {isStaleNoBrokerFailure && (
+                          <p className="text-[10px] text-amber-400">
+                            Failed before this login — broker is connected now, will retry at next scheduled run.
+                          </p>
+                        )}
                         {job.status !== "failed" && (
                           <div className="grid grid-cols-3 gap-2 text-[10px] text-muted-foreground">
                             <div>
@@ -1687,7 +1699,9 @@ export default function Settings() {
                           </div>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
+                    )()}
                   </>
                 )}
               </div>
