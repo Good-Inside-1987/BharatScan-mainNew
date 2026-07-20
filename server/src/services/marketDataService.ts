@@ -162,6 +162,13 @@ function storeBarsInCache(key: string, bars: Bar[]): void {
 // ── Adapter error classifier ───────────────────────────────────────────────────
 // Translates generic Error messages thrown by adapters into typed broker errors.
 
+function markSessionExpired(): void {
+  appDb.prepare(
+    `UPDATE broker_connections SET status = 'session_expired', updated_at = ?
+     WHERE status = 'connected'`
+  ).run(new Date().toISOString());
+}
+
 function classifyAdapterError(err: unknown): never {
   const message = err instanceof Error ? err.message : String(err);
 
@@ -172,8 +179,10 @@ function classifyAdapterError(err: unknown): never {
 
   if (/rate.?limit|too.?many.?request|429/i.test(message)) throw new RateLimitError(message);
 
-  if (/not configured|session|expired|unauthori[sz]|invalid.?(token|key|credentials)|forbidden|could not authenticate/i.test(message))
+  if (/not configured|session|expired|unauthori[sz]|invalid.?(token|key|credentials)|please provide valid|forbidden|could not authenticate/i.test(message)) {
+    markSessionExpired();
     throw new SessionExpiredError(message);
+  }
 
   // Treat anything else as a generic broker unavailability (preserves old 503 behaviour)
   throw new BrokerUnavailableError(message);
