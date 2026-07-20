@@ -395,6 +395,11 @@ router.post("/:id/connect", async (req: Request, res: Response) => {
     return;
   }
 
+  const anyAdapter = adapter as unknown as Record<string, unknown>;
+  if (typeof anyAdapter.configureSession === "function") {
+    (anyAdapter.configureSession as (k: string, t: string) => void)(apiKey, accessToken);
+  }
+
   registerAdapter(row.id, adapter, now);
 
   // ── Post-login integration check ────────────────────────────────────────
