@@ -13,7 +13,8 @@
 
 import { marketDb } from "../db.js";
 import { config } from "../config/environment.js";
-import { getAuthenticatedAdapter, throttleCall, checkAndConsumeBudget, getServiceStats } from "./marketDataService.js";
+import { getAuthenticatedAdapter, throttleCall, checkAndConsumeBudget, getServiceStats, classifyAdapterError } from "./marketDataService.js";
+import { AuthenticationError, SessionExpiredError } from "../errors/brokerErrors.js";
 import { startSyncLog, finishSyncLog, todayIST } from "./syncJobs.js";
 import { isTradingDay } from "./tradingCalendar.js";
 import type { Bar, BrokerAdapter } from "../adapters/types.js";
@@ -316,6 +317,9 @@ async function syncOptionsForUnderlying(
     const getExpiries = anyAdapter.getOptionExpiries as (s: string) => Promise<string[]>;
     expiries = await throttleCall(() => getExpiries.call(adapter, fyersSymbol));
   } catch (err) {
+    try { classifyAdapterError(err); } catch (classified) {
+      if (classified instanceof AuthenticationError || classified instanceof SessionExpiredError) throw classified;
+    }
     console.error("[optionsDataService] Failed to fetch expiries for %s: %s", uName, err instanceof Error ? err.message : String(err));
     return { completed: 0, failed: 1, budgetExhausted: false };
   }
@@ -330,6 +334,9 @@ async function syncOptionsForUnderlying(
   try {
     chain = await throttleCall(() => adapter.getOptionChain(fyersSymbol, expiry));
   } catch (err) {
+    try { classifyAdapterError(err); } catch (classified) {
+      if (classified instanceof AuthenticationError || classified instanceof SessionExpiredError) throw classified;
+    }
     console.error("[optionsDataService] Failed to fetch option chain for %s %s: %s", uName, expiry, err instanceof Error ? err.message : String(err));
     return { completed: 0, failed: 1, budgetExhausted: false };
   }
@@ -513,7 +520,19 @@ export async function runOptionsSyncJob(
         continue;
       }
 
-      const result = await syncOptionsForUnderlying(adapter, underlying, date);
+      let result: UnderlyingSyncResult;
+      try {
+        result = await syncOptionsForUnderlying(adapter, underlying, date);
+      } catch (err) {
+        if (err instanceof AuthenticationError || err instanceof SessionExpiredError) {
+          console.error(
+            "[optionsDataService] Broker session unavailable mid-job (%s) — stopping cleanly",
+            err.message
+          );
+          break;
+        }
+        throw err;
+      }
       completed += result.completed;
       failed += result.failed;
       if (result.budgetExhausted) {

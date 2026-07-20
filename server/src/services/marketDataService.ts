@@ -169,7 +169,7 @@ function markSessionExpired(): void {
   ).run(new Date().toISOString());
 }
 
-function classifyAdapterError(err: unknown): never {
+export function classifyAdapterError(err: unknown): never {
   const message = err instanceof Error ? err.message : String(err);
 
   const isNetwork =
