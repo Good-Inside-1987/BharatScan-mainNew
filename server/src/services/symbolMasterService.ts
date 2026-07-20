@@ -169,6 +169,15 @@ async function runSync(marketDb: DatabaseSync): Promise<SymbolMasterResult> {
   const cmText  = await fetchText(FYERS_CM_URL, BROWSER_HEADERS);
   const cmLines = cmText.trim().split("\n");
 
+  // Snapshot every currently-listed symbol before we touch anything.
+  // After the upsert loop, whatever remains in this set was not present in
+  // Fyers' current file — meaning Fyers considers it delisted/removed.
+  const existingSymbols = new Set<string>(
+    (marketDb.prepare(`SELECT symbol FROM symbols WHERE is_delisted = 0`)
+      .all() as unknown as Array<{ symbol: string }>)
+      .map((r) => r.symbol)
+  );
+
   const now = new Date().toISOString();
   let upserted = 0;
 
@@ -191,8 +200,13 @@ async function runSync(marketDb: DatabaseSync): Promise<SymbolMasterResult> {
       is_fo_eligible   = excluded.is_fo_eligible,
       index_membership = excluded.index_membership,
       fyers_symbol     = excluded.fyers_symbol,
+      is_delisted      = 0,
       updated_at       = excluded.updated_at
   `);
+
+  const markDelisted = marketDb.prepare(
+    `UPDATE symbols SET is_delisted = 1, updated_at = ? WHERE symbol = ?`
+  );
 
   marketDb.exec("BEGIN");
   try {
@@ -214,7 +228,7 @@ async function runSync(marketDb: DatabaseSync): Promise<SymbolMasterResult> {
 
       // Column 9 holds Fyers' own ticker string (e.g. "NSE:RELIANCE-EQ").
       // Fall back to the conventional construction if the CSV omits it.
-      const csvFyers   = cols[CM_COL_FYERS_TICKER]?.trim() || null;
+      const csvFyers    = cols[CM_COL_FYERS_TICKER]?.trim() || null;
       const fyersSymbol = csvFyers ?? `NSE:${symbol}-EQ`;
 
       const sector          = sectorMap.get(symbol) ?? null;
@@ -228,7 +242,23 @@ async function runSync(marketDb: DatabaseSync): Promise<SymbolMasterResult> {
         indexMembership, null, fyersSymbol, now,
       );
       upserted++;
+
+      // This symbol is confirmed present in Fyers' current file — remove it
+      // from the snapshot so it won't be marked delisted below.
+      existingSymbols.delete(symbol);
     }
+
+    // Symbols still in existingSymbols were not in the current Fyers CSV —
+    // Fyers has removed them, so we mark them delisted. A symbol that later
+    // reappears in the file will have is_delisted reset to 0 by the upsert
+    // above (ON CONFLICT sets is_delisted = 0 explicitly).
+    for (const symbol of existingSymbols) {
+      markDelisted.run(now, symbol);
+    }
+    if (existingSymbols.size > 0) {
+      console.log(`[symbol-master] Marked ${existingSymbols.size} symbol(s) delisted (absent from Fyers' current file)`);
+    }
+
     marketDb.exec("COMMIT");
   } catch (err) {
     marketDb.exec("ROLLBACK");
