@@ -23,10 +23,32 @@ import { AuthenticationError, SessionExpiredError } from "../errors/brokerErrors
 import { isTradingDay } from "./tradingCalendar.js";
 
 // ── Fyers symbol helper (same convention as dataLoader.ts's toFyersSymbol) ────
+//
+// fyersSymbolMap is rebuilt once at the start of each job run from
+// `SELECT symbol, fyers_symbol FROM symbols` — one cheap query per job, not
+// one per symbol in the hot loop.  It is null until the first job starts
+// (e.g. on fresh DBs before the symbol master sync runs), in which case the
+// fallback construction `NSE:{SYMBOL}-EQ` is used instead.
+let fyersSymbolMap: Map<string, string> | null = null;
+
+function refreshFyersSymbolMap(): void {
+  try {
+    const rows = marketDb
+      .prepare(`SELECT symbol, fyers_symbol FROM symbols WHERE fyers_symbol IS NOT NULL`)
+      .all() as unknown as Array<{ symbol: string; fyers_symbol: string }>;
+    fyersSymbolMap = new Map(rows.map((r) => [r.symbol, r.fyers_symbol]));
+  } catch {
+    // symbols table may not exist yet on first boot — leave map as-is
+  }
+}
+
 function toFyersSymbol(symbol: string): string {
   const s = symbol.trim().toUpperCase();
   if (s.includes(":")) return s;
-  return `NSE:${s}-EQ`;
+  // Prefer the stored Fyers ticker when available (populated by symbol master
+  // sync); fall back to the conventional NSE:{SYMBOL}-EQ construction for
+  // indices and any symbols pre-dating the fyers_symbol column.
+  return fyersSymbolMap?.get(s) ?? `NSE:${s}-EQ`;
 }
 
 export function todayIST(): string {
@@ -348,6 +370,8 @@ export async function runEodSyncJob(
       return { completed: 0, skippedBudget: 0, failed: 0 };
     }
 
+    refreshFyersSymbolMap();
+
     const adapter = await getAuthenticatedAdapter();
     if (!adapter) {
       console.warn("[syncJobs] EOD sync skipped — no broker connected");
@@ -450,6 +474,8 @@ export async function runIntradaySyncJob(
       finishSyncLog(logId, "completed", { completed: 0, skippedBudget: 0, failed: 0 });
       return { completed: 0, skippedBudget: 0, failed: 0 };
     }
+
+    refreshFyersSymbolMap();
 
     const adapter = await getAuthenticatedAdapter();
     if (!adapter) {

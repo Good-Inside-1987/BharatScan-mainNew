@@ -207,4 +207,9 @@ export function initMarketDb(db: DatabaseSync): void {
   try {
     db.exec(`ALTER TABLE backfill_progress ADD COLUMN covered_ranges TEXT NOT NULL DEFAULT '[]'`);
   } catch { /* column already exists */ }
+
+  // Add fyers_symbol column to symbols table (populated by symbol master sync).
+  try {
+    db.exec(`ALTER TABLE symbols ADD COLUMN fyers_symbol TEXT`);
+  } catch { /* column already exists */ }
 }

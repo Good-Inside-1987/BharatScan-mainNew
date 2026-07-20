@@ -49,13 +49,14 @@ const NSE_INDICES: NseIndexCfg[] = [
 // 4: tick_size    5: isin          6: trading_hours     7: last_updated
 // 8: expiry       9: fyers_ticker  10: ?  11: segment_code  12: short_token
 // 13: symbol      14...: other fields
-const CM_COL_TOKEN      = 0;
-const CM_COL_NAME       = 1;
-const CM_COL_INSTR_TYPE = 2;
-const CM_COL_LOT_SIZE   = 3;
-const CM_COL_TICK_SIZE  = 4;
-const CM_COL_ISIN       = 5;
-const CM_COL_SYMBOL     = 13;
+const CM_COL_TOKEN        = 0;
+const CM_COL_NAME         = 1;
+const CM_COL_INSTR_TYPE   = 2;
+const CM_COL_LOT_SIZE     = 3;
+const CM_COL_TICK_SIZE    = 4;
+const CM_COL_ISIN         = 5;
+const CM_COL_FYERS_TICKER = 9;
+const CM_COL_SYMBOL       = 13;
 
 // Fyers instrument type code 0 = EQ (equity). Skip everything else from CM file.
 const EQ_INSTR_TYPE = "0";
@@ -175,8 +176,8 @@ async function runSync(marketDb: DatabaseSync): Promise<SymbolMasterResult> {
     INSERT INTO symbols (
       token, symbol, exchange, isin, name, sector, industry,
       lot_size, tick_size, instrument_type, is_fo_eligible,
-      index_membership, listing_date, is_delisted, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+      index_membership, listing_date, is_delisted, fyers_symbol, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
     ON CONFLICT(token) DO UPDATE SET
       symbol           = excluded.symbol,
       exchange         = excluded.exchange,
@@ -189,6 +190,7 @@ async function runSync(marketDb: DatabaseSync): Promise<SymbolMasterResult> {
       instrument_type  = excluded.instrument_type,
       is_fo_eligible   = excluded.is_fo_eligible,
       index_membership = excluded.index_membership,
+      fyers_symbol     = excluded.fyers_symbol,
       updated_at       = excluded.updated_at
   `);
 
@@ -210,6 +212,11 @@ async function runSync(marketDb: DatabaseSync): Promise<SymbolMasterResult> {
       const lotSize   = parseInt(cols[CM_COL_LOT_SIZE] ?? "1",  10) || 1;
       const tickSize  = parseFloat(cols[CM_COL_TICK_SIZE] ?? "0.05") || 0.05;
 
+      // Column 9 holds Fyers' own ticker string (e.g. "NSE:RELIANCE-EQ").
+      // Fall back to the conventional construction if the CSV omits it.
+      const csvFyers   = cols[CM_COL_FYERS_TICKER]?.trim() || null;
+      const fyersSymbol = csvFyers ?? `NSE:${symbol}-EQ`;
+
       const sector          = sectorMap.get(symbol) ?? null;
       const isFoEligible    = foUnderlyings.has(symbol) ? 1 : 0;
       const indexMembership = indexMap.get(symbol)?.join(",") ?? null;
@@ -218,7 +225,7 @@ async function runSync(marketDb: DatabaseSync): Promise<SymbolMasterResult> {
       stmt.run(
         token, symbol, "NSE", isin, name, sector, null,
         lotSize, tickSize, instrLabel, isFoEligible,
-        indexMembership, null, now,
+        indexMembership, null, fyersSymbol, now,
       );
       upserted++;
     }
