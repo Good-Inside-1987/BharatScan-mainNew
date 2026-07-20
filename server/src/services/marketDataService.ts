@@ -172,7 +172,7 @@ function classifyAdapterError(err: unknown): never {
 
   if (/rate.?limit|too.?many.?request|429/i.test(message)) throw new RateLimitError(message);
 
-  if (/not configured|session|expired|unauthori[sz]|invalid.?(token|key|credentials)|forbidden/i.test(message))
+  if (/not configured|session|expired|unauthori[sz]|invalid.?(token|key|credentials)|forbidden|could not authenticate/i.test(message))
     throw new SessionExpiredError(message);
 
   // Treat anything else as a generic broker unavailability (preserves old 503 behaviour)

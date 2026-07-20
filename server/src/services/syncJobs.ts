@@ -209,19 +209,23 @@ interface SymbolRow { symbol: string }
 
 interface JobStats { completed: number; skippedBudget: number; failed: number }
 
-// Fyers surfaces overload/rate-limiting two different ways under load:
-//   1. An HTML page instead of JSON — already normalized by fyers.ts's
-//      fetchJson() into Error("Rate limited by Fyers (received HTML instead of JSON)").
-//   2. A well-formed JSON error with message "Could not authenticate the user" —
-//      this is Fyers' own documented quirk: their gateway returns this exact
-//      auth-sounding message when a valid, already-authenticated session is
-//      simply being throttled for sending requests too fast. It is NOT a real
-//      session/token problem (those come through as AuthenticationError /
-//      SessionExpiredError from marketDataService.ts instead).
-// Both are almost always transient — a short backoff and retry succeeds.
+// Fyers returns an HTML page instead of JSON when it's rate-limiting a
+// request on an otherwise-valid session — already normalized by fyers.ts's
+// fetchJson() into Error("Rate limited by Fyers (received HTML instead of
+// JSON)"). This is genuinely transient and worth a short backoff + retry.
+//
+// NOTE: an earlier version of this list also treated Fyers' literal
+// "Could not authenticate the user" message as transient, on the theory
+// that Fyers uses that auth-sounding wording as a generic overload signal.
+// Real-world logs disproved that — it corresponded to an actually-expired
+// token (confirmed independently via the live feed bridge's raw error:
+// {'code': -99, 'message': 'Token is expired'}). That message is now
+// classified upstream in marketDataService.ts's classifyAdapterError() as
+// a real SessionExpiredError, which this loop already handles correctly by
+// stopping the whole job cleanly instead of burning retries/budget hammering
+// a dead token across thousands of symbols.
 const TRANSIENT_OVERLOAD_PATTERNS = [
   /rate limited by fyers/i,
-  /could not authenticate the user/i,
 ];
 
 function isTransientOverloadError(err: unknown): boolean {
