@@ -321,42 +321,20 @@ async function runSymbolLoop(
   const stats: JobStats = { completed: 0, skippedBudget: 0, failed: 0 };
   let budgetExhausted = false;
 
-  let i = 0;
   for (const symbol of symbols) {
-    i++;
-
     if (alreadyCovered(symbol)) {
       stats.completed++;
-      // Periodic tally every 200 symbols
-      if (i % 200 === 0) {
-        console.log(
-          "[syncJobs][debug] progress: completed=%d skippedBudget=%d failed=%d at symbol #%d",
-          stats.completed, stats.skippedBudget, stats.failed, i
-        );
-      }
       continue;
     }
 
     if (budgetExhausted) {
       stats.skippedBudget++;
-      if (i % 200 === 0) {
-        console.log(
-          "[syncJobs][debug] progress: completed=%d skippedBudget=%d failed=%d at symbol #%d",
-          stats.completed, stats.skippedBudget, stats.failed, i
-        );
-      }
       continue;
     }
 
     if (getServiceStats().remainingBudgetToday <= 0) {
       budgetExhausted = true;
       stats.skippedBudget++;
-      if (i % 200 === 0) {
-        console.log(
-          "[syncJobs][debug] progress: completed=%d skippedBudget=%d failed=%d at symbol #%d",
-          stats.completed, stats.skippedBudget, stats.failed, i
-        );
-      }
       continue;
     }
 
@@ -364,15 +342,7 @@ async function runSymbolLoop(
       await new Promise((resolve) => setTimeout(resolve, 300));
       const bars = await fetchBarsWithRetry(symbol, resolution, date);
       if (bars.length > 0) {
-        const completedBefore = stats.completed;
         stats.completed++;
-        // Assertion-style check: confirm the increment actually ran
-        if (stats.completed !== completedBefore + 1) {
-          console.error(
-            "[syncJobs][debug] BUG: bars.length=%d for %s but stats.completed did NOT increment (before=%d after=%d)",
-            bars.length, symbol, completedBefore, stats.completed
-          );
-        }
       } else {
         // No candle for this date (e.g. symbol didn't trade) — not a failure,
         // but not "completed" data either. Count it alongside failed for
@@ -391,14 +361,6 @@ async function runSymbolLoop(
       console.error(
         "[syncJobs] Failed to sync %s @ %s: %s",
         symbol, date, err instanceof Error ? err.message : String(err)
-      );
-    }
-
-    // Periodic tally every 200 symbols (covers broker-fetch path)
-    if (i % 200 === 0) {
-      console.log(
-        "[syncJobs][debug] progress: completed=%d skippedBudget=%d failed=%d at symbol #%d",
-        stats.completed, stats.skippedBudget, stats.failed, i
       );
     }
   }

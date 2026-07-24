@@ -232,6 +232,25 @@ export async function registerAllCronJobs(): Promise<void> {
   // early as possible in a fresh deployment.
   await bootstrapHolidayCalendarIfEmpty();
 
+  // One-time idempotent migration: normalize any ohlcv_daily.date values that
+  // were stored as full ISO timestamps (e.g. "2026-07-23T00:00:00.000Z") down
+  // to plain YYYY-MM-DD strings. The Fyers adapter returned full timestamps
+  // which broke BETWEEN queries and caused EOD stats.completed to stay 0.
+  // Must run before catch-up so isEodCovered() and queryBars() see clean data.
+  try {
+    const migResult = marketDb
+      .prepare(`UPDATE ohlcv_daily SET date = substr(date, 1, 10) WHERE date LIKE '%T%'`)
+      .run();
+    if (migResult.changes > 0) {
+      console.log(
+        "[scheduler] Migrated %d ohlcv_daily row(s): normalized full ISO timestamps to YYYY-MM-DD",
+        migResult.changes
+      );
+    }
+  } catch (err) {
+    console.error("[scheduler] ohlcv_daily date migration failed:", err instanceof Error ? err.message : String(err));
+  }
+
   // Clean up any sync_log rows left in status='running' from a previous process
   // that was killed mid-job. Must run before catch-up so the scheduler doesn't
   // treat those rows as successful completions and skip re-running them.

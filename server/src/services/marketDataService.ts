@@ -392,7 +392,13 @@ function upsertBars(symbol: string, resolution: string, bars: Bar[]): void {
     `);
     try {
       marketDb.exec("BEGIN");
-      for (const b of bars) stmt.run(symbol, b.date, b.open, b.high, b.low, b.close, b.volume);
+      // Normalize to plain YYYY-MM-DD — the Fyers adapter returns full ISO
+      // timestamps (e.g. "2026-07-23T00:00:00.000Z") for daily bars. Storing
+      // the raw timestamp breaks BETWEEN queries that use plain date strings,
+      // causing isEodCovered() to always return false and stats.completed to
+      // stay 0. Only the daily table needs this; intraday legitimately uses
+      // full timestamps.
+      for (const b of bars) stmt.run(symbol, b.date.slice(0, 10), b.open, b.high, b.low, b.close, b.volume);
       marketDb.exec("COMMIT");
     } catch (e) { marketDb.exec("ROLLBACK"); throw e; }
   } else {
