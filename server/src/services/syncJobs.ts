@@ -55,6 +55,31 @@ export function todayIST(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: config.timezone });
 }
 
+/**
+ * On startup, any sync_log row still in status='running' is guaranteed stale —
+ * this is a single-instance app, so no other process could be legitimately
+ * running a job. Mark them all failed so the catch-up scheduler doesn't skip
+ * them when computing missed dates.
+ */
+export function cleanupOrphanedSyncLogs(): void {
+  const now = new Date().toISOString();
+  const result = marketDb
+    .prepare(
+      `UPDATE sync_log
+          SET status = 'failed',
+              finished_at = ?,
+              error_message = 'Orphaned — process restarted mid-job'
+        WHERE status = 'running'`
+    )
+    .run(now);
+  if (result.changes > 0) {
+    console.log(
+      "[syncJobs] Cleaned up %d orphaned 'running' sync_log row(s) from previous process",
+      result.changes
+    );
+  }
+}
+
 // ── sync_log helpers ────────────────────────────────────────────────────────
 // Extend the existing sync_log table (idempotent) with per-run symbol counts
 // so the Backfill Dashboard can show completed vs. skipped-due-to-budget.
@@ -296,20 +321,42 @@ async function runSymbolLoop(
   const stats: JobStats = { completed: 0, skippedBudget: 0, failed: 0 };
   let budgetExhausted = false;
 
+  let i = 0;
   for (const symbol of symbols) {
+    i++;
+
     if (alreadyCovered(symbol)) {
       stats.completed++;
+      // Periodic tally every 200 symbols
+      if (i % 200 === 0) {
+        console.log(
+          "[syncJobs][debug] progress: completed=%d skippedBudget=%d failed=%d at symbol #%d",
+          stats.completed, stats.skippedBudget, stats.failed, i
+        );
+      }
       continue;
     }
 
     if (budgetExhausted) {
       stats.skippedBudget++;
+      if (i % 200 === 0) {
+        console.log(
+          "[syncJobs][debug] progress: completed=%d skippedBudget=%d failed=%d at symbol #%d",
+          stats.completed, stats.skippedBudget, stats.failed, i
+        );
+      }
       continue;
     }
 
     if (getServiceStats().remainingBudgetToday <= 0) {
       budgetExhausted = true;
       stats.skippedBudget++;
+      if (i % 200 === 0) {
+        console.log(
+          "[syncJobs][debug] progress: completed=%d skippedBudget=%d failed=%d at symbol #%d",
+          stats.completed, stats.skippedBudget, stats.failed, i
+        );
+      }
       continue;
     }
 
@@ -317,7 +364,15 @@ async function runSymbolLoop(
       await new Promise((resolve) => setTimeout(resolve, 300));
       const bars = await fetchBarsWithRetry(symbol, resolution, date);
       if (bars.length > 0) {
+        const completedBefore = stats.completed;
         stats.completed++;
+        // Assertion-style check: confirm the increment actually ran
+        if (stats.completed !== completedBefore + 1) {
+          console.error(
+            "[syncJobs][debug] BUG: bars.length=%d for %s but stats.completed did NOT increment (before=%d after=%d)",
+            bars.length, symbol, completedBefore, stats.completed
+          );
+        }
       } else {
         // No candle for this date (e.g. symbol didn't trade) — not a failure,
         // but not "completed" data either. Count it alongside failed for
@@ -336,6 +391,14 @@ async function runSymbolLoop(
       console.error(
         "[syncJobs] Failed to sync %s @ %s: %s",
         symbol, date, err instanceof Error ? err.message : String(err)
+      );
+    }
+
+    // Periodic tally every 200 symbols (covers broker-fetch path)
+    if (i % 200 === 0) {
+      console.log(
+        "[syncJobs][debug] progress: completed=%d skippedBudget=%d failed=%d at symbol #%d",
+        stats.completed, stats.skippedBudget, stats.failed, i
       );
     }
   }

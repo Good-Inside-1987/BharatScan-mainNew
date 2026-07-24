@@ -15,7 +15,7 @@ import {
 import { marketDb } from "../db.js";
 import { syncSymbolMaster } from "./symbolMasterService.js";
 import { syncNseHolidayCalendar } from "./holidayCalendarService.js";
-import { runEodSyncJob, runIntradaySyncJob, todayIST } from "./syncJobs.js";
+import { runEodSyncJob, runIntradaySyncJob, todayIST, cleanupOrphanedSyncLogs } from "./syncJobs.js";
 import { runOptionsSyncJob } from "./optionsDataService.js";
 import { runFoBanListJob } from "./foBanListService.js";
 import { runSupplementaryJob, runMfHoldingsJob } from "./supplementaryJobs.js";
@@ -231,6 +231,11 @@ export async function registerAllCronJobs(): Promise<void> {
   // isTradingDay() checks depend on the holiday calendar being current as
   // early as possible in a fresh deployment.
   await bootstrapHolidayCalendarIfEmpty();
+
+  // Clean up any sync_log rows left in status='running' from a previous process
+  // that was killed mid-job. Must run before catch-up so the scheduler doesn't
+  // treat those rows as successful completions and skip re-running them.
+  cleanupOrphanedSyncLogs();
 
   // Catch up on any missed trading days (server was asleep/offline, or a job
   // silently failed) BEFORE the normal cron jobs are registered below, so a
