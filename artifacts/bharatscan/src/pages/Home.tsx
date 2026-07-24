@@ -481,9 +481,9 @@ function IndexCard({
       {sourceLabel && (
         <span
           className={`absolute top-1.5 left-1.5 h-1.5 w-1.5 rounded-full ${
-            marketOpenNow && connected ? "bg-success animate-pulse" : "bg-amber-400"
+            liveQuote ? "bg-success animate-pulse" : "bg-amber-400"
           }`}
-          title={marketOpenNow && connected ? "Live" : "Showing last close"}
+          title={liveQuote ? "Live feed active" : "Showing last close"}
         />
       )}
       {data.found ? (
